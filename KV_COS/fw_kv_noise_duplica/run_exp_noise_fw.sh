@@ -5,8 +5,8 @@ set -euo pipefail
 # 基本設定
 # ==========================================
 EPOCHS=${EPOCHS:-150}
-TRAIN_STEPS=${TRAIN_STEPS:-600}
-VAL_STEPS=${VAL_STEPS:-200}
+TRAIN_STEPS=${TRAIN_STEPS:-10000}
+VAL_STEPS=${VAL_STEPS:-2000}
 BATCH=${BATCH:-32}
 
 # ==========================================
@@ -46,7 +46,7 @@ CLIP=${CLIP:-0.7}
 # ==========================================
 # Bind/Wait
 # ==========================================
-T_BIND=${T_BIND:-9}
+T_BIND=${T_BIND:-12}
 DELTA_WAIT=${DELTA_WAIT:-0}
 DUPLICATE=${DUPLICATE:-3}
 
@@ -54,7 +54,7 @@ DUPLICATE=${DUPLICATE:-3}
 # Sweep
 # ==========================================
 S_LIST=${S_LIST:-"1"}
-NOISE_LIST=${NOISE_LIST:-"1.0 0.8 0.5 0.3"}
+NOISE_LIST=${NOISE_LIST:-"1.0 0.8 0.6 0.4 0.2"}
 BETA=${BETA:-0.0}
 SEEDS=${SEEDS:-"0"}
 

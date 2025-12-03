@@ -244,43 +244,40 @@ def main():
             f"| alpha={alpha_tr:.3f}/{alpha_va:.3f} "
             f"(S={args.S}, Δ_wait={args.delta_wait}, dup={args.duplicate}, core={args.core_type})"
         )
-    
+
     # === 保存ディレクトリ作成（タイムスタンプ版） ===
     import os
     from datetime import datetime
 
-    # 親ディレクトリ
     BASE_DIR = "checkpoints"
     os.makedirs(BASE_DIR, exist_ok=True)
 
-    # タイムスタンプ（例: 20251123_134522）
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # 新しい保存先フォルダ
     SAVE_DIR = os.path.join(BASE_DIR, timestamp)
     os.makedirs(SAVE_DIR, exist_ok=True)
 
-    # lambda を小数3桁でファイル名に付加
     lam_str = f"{args.lambda_decay:.3f}".replace(".", "")
+    fw_flag = int(args.use_fw)
+    eta_str = f"{args.eta:.3f}".replace(".", "")
 
-    # 保存ファイルパス（内容は従来通り）
     ckpt_path = os.path.join(
         SAVE_DIR,
-        f"kv_{args.core_type}_S{args.S}_lam{lam_str}_seed{args.seed}.pt"
+        f"kv_{args.core_type}_S{args.S}_fw{fw_flag}_eta{eta_str}_lam{lam_str}_seed{args.seed}.pt"
     )
 
-    # === モデル＋ヘッドをまとめて保存（中身は変更しない） ===
+    # === モデル＋ヘッドをまとめて保存 ===
     torch.save(
         {
             "core_type": args.core_type,
             "model_state": model.state_dict(),
             "head_state": head.state_dict(),
+            "mu": mu_value,        # ← 修正
+            "key_proto": key_proto # ← 修正
         },
         ckpt_path
     )
 
     print(f"[SAVE] Trained weights saved → {ckpt_path}")
-
 
 if __name__ == "__main__":
     main()
