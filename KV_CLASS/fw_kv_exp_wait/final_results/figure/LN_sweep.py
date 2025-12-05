@@ -125,7 +125,7 @@ def main():
     plt.ylim(0.0, 1.0)
     plt.grid(True)
     plt.legend()
-    plt.title("LN sweep (FW vs RNN, with/without LN)")
+    plt.title("Layer normalization (FW vs RNN, with/without LN)")
 
     out_path = os.path.join(OUT_DIR, "ln_sweep_acc.png")
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
