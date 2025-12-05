@@ -14,4 +14,4 @@ class CoreCfg:
     use_A: bool = True
 
     # ★ 方向一致制御 (α)：softplus(alpha_fw) + 1 → α_shape (>=1)
-    alpha_fw: float = 0.0
+    alpha_fw: float = -2.0

@@ -101,6 +101,8 @@ class CoreRNNFW(nn.Module):
         
         self.log_A = []
 
+        self.log_h_full = []     # ★ h_t を保存 ← 追加
+
         # -------------------------
         # Gain k
         # -------------------------
@@ -111,7 +113,7 @@ class CoreRNNFW(nn.Module):
         # -------------------------
         def append_log(kind, cid, A_t, h_t):
             froA = torch.norm(A_t, p="fro", dim=(1,2)).mean().item()
-            specA = batch_spectral_radius(A_t)
+            specA = torch.linalg.svdvals(A_t)[..., 0].mean().item()
             h_norm = h_t.norm(dim=1).mean().item()
             Ah = torch.bmm(A_t, h_t.unsqueeze(-1)).squeeze(-1)
             Ah_norm = Ah.norm(dim=1).mean().item()
@@ -136,6 +138,9 @@ class CoreRNNFW(nn.Module):
             h_base = self.W_h(h) + self.W_g(z_t) + self.b_h
             h = torch.relu(h_base)
 
+            # ★ h_t を保存 ← 追加
+            self.log_h_full.append(h.detach().cpu().clone())
+
             # -------------------------
             # Query（last step）
             # -------------------------
@@ -149,30 +154,30 @@ class CoreRNNFW(nn.Module):
                     for s in range(S_loop):
                         Ah = torch.bmm(A, h_s.unsqueeze(-1)).squeeze(-1)
 
-                        # ★ 正解 value の内部状態との cosine（cid_raw は bind_idx）
-                        q_bind_idx = cid_raw   # ← Query の cid_raw は bind_idx のため正しい
+                        dot  = (h_s * Ah).sum(dim=1, keepdim=True)
+                        eps = 1e-6
+                        norm1 = h_s.norm(dim=1, keepdim=True).clamp_min(eps)
+                        norm2 = Ah.norm(dim=1, keepdim=True).clamp_min(eps)
 
-                        if q_bind_idx in self.bind_h:
-                            h_value = self.bind_h[q_bind_idx]    # ← 正しい bind 順の value h
-                            cos_value = F.cosine_similarity(h_s, h_value, dim=1).mean().item()
-                        else:
-                            cos_value = 0.0
+                        R = dot / (norm1 * norm2)
+                        R_pos = R.clamp(min=0.0, max=1.0)
+
+                        alpha_dyn = 1.0 - (1.0 - R_pos) ** k
 
                         sloop_t.append({
                             "s": s,
                             "h_norm": h_s.norm(dim=1).mean().item(),
                             "Ah_norm": Ah.norm(dim=1).mean().item(),
                             "cos_h0": F.cosine_similarity(h0, h_s, dim=1).mean().item(),
-                            "cos_value": cos_value,           # ★ 追加ログ
+                            "alpha_dyn": alpha_dyn.mean().item(),
                         })
 
-                        h_s = torch.relu(self.ln_h(h_base + Ah))
+                        h_s = (1 - alpha_dyn**2) * h_base + alpha_dyn * Ah
+                        h_s = torch.relu(self.ln_h(h_s))
 
                     h = h_s
 
-                # store sloop
                 self.log_sloop.append(sloop_t)
-
                 self.log_A.append(A.detach().cpu().clone())
 
                 # ---- Query classification result ----
@@ -189,9 +194,8 @@ class CoreRNNFW(nn.Module):
                         sorted_logits, _ = torch.sort(logits, descending=True)
                         margin = (sorted_logits[:,0] - sorted_logits[:,1]).mean().item()
 
-                        # head.fc.weight : (num_classes, d_h)
                         W = head.fc.weight
-                        w_true = W[true_class]           # (d_h)
+                        w_true = W[true_class]
                         w_true = w_true.unsqueeze(0).expand(B, -1)
 
                         cos = F.cosine_similarity(h, w_true, dim=1).mean().item()
@@ -218,21 +222,16 @@ class CoreRNNFW(nn.Module):
                 for s in range(S_loop):
                     Ah = torch.bmm(A, h_s.unsqueeze(-1)).squeeze(-1)
 
-                    # 整合度 cos(h_s, Ah)
                     dot = (h_s * Ah).sum(dim=1, keepdim=True)
 
-                    # ノルムに ε を足してゼロ割り防止
                     eps = 1e-6
                     norm1 = h_s.norm(dim=1, keepdim=True).clamp_min(eps)
                     norm2 = Ah.norm(dim=1, keepdim=True).clamp_min(eps)
 
-                    R = dot / (norm1 * norm2)            # 理論上 [-1, 1]
-                    R_pos = R.clamp(min=0.0, max=1.0)    # 負の相関は 0 に潰す
+                    R = dot / (norm1 * norm2)
+                    R_pos = R.clamp(min=0.0, max=1.0)
 
-                    # 凸⇄凹切り替え可能なゲイン
-                    alpha_dyn = 1.0 - (1.0 - R_pos) ** k  # or: alpha_dyn = R_pos ** k
-                    # 念のため [0,1] に収めておきたいなら ↓ もあり
-                    # alpha_dyn = alpha_dyn.clamp(0.0, 1.0)
+                    alpha_dyn = 1.0 - (1.0 - R_pos) ** k
 
                     sloop_t.append({
                         "s": s,
@@ -255,11 +254,10 @@ class CoreRNNFW(nn.Module):
 
             # ★ value の内部状態を保存
             if kind == "value":
-                bind_idx = t // 2 
+                bind_idx = t // 2
                 self.bind_h[bind_idx] = h.detach().clone()
 
             self.log_sloop.append(sloop_t)
-
             self.log_A.append(A.detach().cpu().clone())
 
             append_log(kind, cid_raw, A, h)

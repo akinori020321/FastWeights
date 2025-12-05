@@ -104,12 +104,14 @@ class CoreRNNFW(nn.Module):
 
         self.log_A = []
 
+        self.log_h_full = []        # ★ フル h_t 保存用 ←追加行
+
         # -------------------------
         # ログ関数
         # -------------------------
         def append_log(kind, cid, A_t, h_t):
             froA = torch.norm(A_t, p='fro', dim=(1, 2)).mean().item()
-            specA = batch_spectral_radius(A_t)
+            specA = torch.linalg.svdvals(A_t)[..., 0].mean().item()
             h_norm = h_t.norm(dim=1).mean().item()
             Ah = torch.bmm(A_t, h_t.unsqueeze(2)).squeeze(-1)
             Ah_norm = Ah.norm(dim=1).mean().item()
@@ -133,6 +135,9 @@ class CoreRNNFW(nn.Module):
             # ===== Basic RNN =====
             h_base = self.W_h(h) + self.W_g(z_t) + self.b_h
             h = torch.relu(h_base)
+
+            # ★★★ h_t をフルベクトルで保存（追加行）
+            self.log_h_full.append(h.detach().cpu().clone())
 
             # ==========================================================
             # Query
@@ -162,7 +167,7 @@ class CoreRNNFW(nn.Module):
                             "h_norm": h_s.norm(dim=1).mean().item(),
                             "Ah_norm": Ah.norm(dim=1).mean().item(),
                             "cos_h0": F.cosine_similarity(h0, h_s, dim=1).mean().item(),
-                            "cos_value": cos_value,   # ★ 追加
+                            "cos_value": cos_value,
                         })
 
                         h_s = torch.relu(self.ln_h(h_base + Ah))
@@ -188,13 +193,11 @@ class CoreRNNFW(nn.Module):
                         sorted_logits, _ = torch.sort(logits, descending=True)
                         margin = (sorted_logits[:, 0] - sorted_logits[:, 1]).mean().item()
 
-                        # head.fc.weight : (num_classes, d_h)
                         W = head.fc.weight
-                        w_true = W[true_class]           # (d_h)
+                        w_true = W[true_class]
                         w_true = w_true.unsqueeze(0).expand(B, -1)
 
                         cos = F.cosine_similarity(h, w_true, dim=1).mean().item()
-
 
                     self.log_query = {
                         "true": true_class,
@@ -240,9 +243,7 @@ class CoreRNNFW(nn.Module):
                 bind_idx = t // 2 
                 self.bind_h[bind_idx] = h.detach().clone()
 
-
             self.log_sloop.append(sloop_t)
-
             self.log_A.append(A.detach().cpu().clone())
 
             append_log(kind, cid_raw, A, h)
