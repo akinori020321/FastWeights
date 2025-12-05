@@ -20,7 +20,7 @@ USE_LN="--use_ln"
 S_LIST="1 3"
 
 # Sweep する core タイプ
-CORE_LIST="fw tanh"
+CORE_LIST="rnn fw tanh"
 
 # ==========================================
 # 実行

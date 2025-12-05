@@ -44,6 +44,11 @@ def build_core_model(args):
         from fw_kv.models.core_tanh import CoreRNNFW
         print("[Model] Using core_tanh.py")
         return CoreRNNFW(cfg)
+    
+    elif args.core_type == "rnn":
+        from fw_kv.models.core_rnn_ln import CoreRNN_LN
+        print("[Model] Using core_rnn_ln.py (Pure RNN + LayerNorm)")
+        return CoreRNN_LN(cfg)
 
     else:
         raise ValueError("Unsupported core_type for A-dynamics")
@@ -60,7 +65,7 @@ def main():
     ap.add_argument("--out_csv", type=str, default="results_A_kv/A_kv_fw_S3.csv")
 
     # model設定
-    ap.add_argument("--core_type", type=str, default="fw", choices=["fw", "tanh"])
+    ap.add_argument("--core_type", type=str, default="fw", choices=["fw", "tanh", "rnn"])
     ap.add_argument("--d_g", type=int, default=64)
     ap.add_argument("--d_h", type=int, default=128)
     ap.add_argument("--num_classes", type=int, default=20)
@@ -132,7 +137,7 @@ def main():
         batch_size=args.batch_size,
         class_ids=class_ids,      # ★ 外で作った Bind クラス列を渡す
         device=device,
-        seed=args.seed + 200,
+        seed=args.seed + 400,
     )
 
     T_total = z_seq.size(0)

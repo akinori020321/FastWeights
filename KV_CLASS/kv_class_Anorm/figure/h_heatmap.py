@@ -50,7 +50,7 @@ def cosine_matrix(H):
 def parse_filename(fname):
     base = os.path.basename(fname)
 
-    pattern = r"H_kv_(fw|tanh)_S([0-9]+)_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+    pattern = r"H_kv_(fw|tanh|rnn)_S([0-9]+)_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
     m = re.match(pattern, base)
 
     if m is None:
