@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-h_heatmap.py
+h_heatmap.py + dot-product heatmap
 ----------------------------------------
-各時刻 h_t の cosine similarity 行列 (T×T) を可視化し、
-同一ディレクトリ内の H_kv_*.csv をすべて1枚の図に subplot として並べる。
-
-特徴：
- - 対角成分は青で塗る
- - 同じクラスの value 同士は square ではなく、(i,j) 1セルのみ塗る
- - query と bind_key の対応セルも 1セルのみ塗る
+Cosine similarity と Dot-product の2種類のヒートマップを生成する。
+既存の装飾（対角青・value 枠線・query 対応枠線）もそのまま適用。
 """
 
 import os
@@ -29,9 +24,8 @@ from matplotlib.colors import LinearSegmentedColormap
 # --------------------------------------------------
 def load_h_csv(path):
     df = pd.read_csv(path)
-    # 数値列のみ抽出
     numeric_df = df.select_dtypes(include=[np.number])
-    H = numeric_df.values  # (T, d_h)
+    H = numeric_df.values
     return H, df["kind"].tolist(), df["class_id"].tolist()
 
 
@@ -45,11 +39,17 @@ def cosine_matrix(H):
 
 
 # --------------------------------------------------
+# ★ NEW: dot product matrix
+# --------------------------------------------------
+def dot_matrix(H):
+    return np.matmul(H, H.T)
+
+
+# --------------------------------------------------
 # ファイル名パーサ
 # --------------------------------------------------
 def parse_filename(fname):
     base = os.path.basename(fname)
-
     pattern = r"H_kv_(fw|tanh|rnn)_S([0-9]+)_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
     m = re.match(pattern, base)
 
@@ -61,16 +61,81 @@ def parse_filename(fname):
     eta = m.group(3)
     lam = m.group(4)
     seed = m.group(5)
-
     return core, S, eta, lam, seed
 
 
 # --------------------------------------------------
-# heatmap プロット
+# ★ core 名を変換する
+# --------------------------------------------------
+CORE_NAME = {
+    "fw": "Ba-FW",
+    "tanh": "SC-FW",
+    "rnn": "RNN-LN",
+}
+
+
+# --------------------------------------------------
+# 共通のヒートマップ描画（cos/dot 共通）
+# --------------------------------------------------
+def draw_single_heatmap(ax, M, kinds, class_ids):
+    T = len(kinds)
+
+    # ---- ① 対角を青 ----
+    for t in range(T):
+        ax.add_patch(
+            patches.Rectangle(
+                (t, t), 1, 1,
+                fill=True, facecolor="blue", edgecolor="none", alpha=0.6
+            )
+        )
+
+    # ---- ② 同クラス value の枠線強調 ----
+    from collections import defaultdict
+    class_to_values = defaultdict(list)
+    for t in range(T):
+        if kinds[t] == "value":
+            class_to_values[class_ids[t]].append(t)
+
+    import matplotlib.cm as cm
+    color_map = cm.get_cmap("tab20", len(class_to_values))
+
+    for idx_c, (cid, steps) in enumerate(class_to_values.items()):
+        color = color_map(idx_c)
+        for i in steps:
+            for j in steps:
+                if i == j:
+                    continue
+                ax.add_patch(
+                    patches.Rectangle(
+                        (j, i), 1, 1,
+                        fill=False,
+                        edgecolor=color,
+                        linewidth=2.0
+                    )
+                )
+
+    # ---- ③ query と bind_key 強調 ----
+    if "query" in kinds:
+        q_step = kinds.index("query")
+        bind_idx = class_ids[q_step]
+        key_step = bind_idx * 2
+
+        for (x, y) in [(key_step, q_step), (q_step, key_step)]:
+            ax.add_patch(
+                patches.Rectangle(
+                    (x, y), 1, 1,
+                    fill=False,
+                    edgecolor="magenta",
+                    linewidth=2.5
+                )
+            )
+
+
+# --------------------------------------------------
+# cosine Heatmap
 # --------------------------------------------------
 def plot_heatmaps_all(csv_list, out_png="h_heatmap_all.png"):
     N = len(csv_list)
-
     ncols = int(np.ceil(np.sqrt(N)))
     nrows = int(np.ceil(N / ncols))
 
@@ -80,37 +145,30 @@ def plot_heatmaps_all(csv_list, out_png="h_heatmap_all.png"):
         squeeze=False
     )
 
-    sns.set(font_scale=1.0)
-
-    # ★ カラーマップ定義 (-1〜0 黒, 0〜1 赤→緑)
+    # カラーマップ（既存そのまま）
     cmap = LinearSegmentedColormap.from_list(
         "custom_cmap",
         [
-            (0.0,  "black"),  # -1
-            (0.5,  "black"),  #  0 未満は全部黒
-            (0.5,  "red"),    #  0
-            (1.0,  "green"),  #  1
+            (0.0, "black"),
+            (0.5, "black"),
+            (0.5, "red"),
+            (1.0, "green"),
         ]
     )
 
-    # 共通 colorbar 軸
     cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
 
-    # 描画ループ
     for idx, csv_path in enumerate(csv_list):
         H, kinds, class_ids = load_h_csv(csv_path)
         C = cosine_matrix(H)
-
         core, S, eta, lam, seed = parse_filename(csv_path)
-
-        T = len(kinds)
+        core_name = CORE_NAME.get(core, core)
 
         r = idx // ncols
         c = idx % ncols
         ax = axes[r][c]
 
-        # ---- Heatmap 本体 ----
-        hm = sns.heatmap(
+        sns.heatmap(
             C,
             vmin=-1.0,
             vmax=1.0,
@@ -120,79 +178,12 @@ def plot_heatmaps_all(csv_list, out_png="h_heatmap_all.png"):
             cbar_ax=cbar_ax if idx == 0 else None
         )
 
-        # ------------------------------------------------------------
-        # ① 対角成分を青で塗りつぶす
-        # ------------------------------------------------------------
-        for t in range(T):
-            ax.add_patch(
-                patches.Rectangle(
-                    (t, t), 1, 1,
-                    fill=True, facecolor="blue", edgecolor="none", alpha=0.6
-                )
-            )
+        draw_single_heatmap(ax, C, kinds, class_ids)
 
-        # ------------------------------------------------------------
-        # ② 同じクラスの value 同士のセル（枠線で強調）
-        # ------------------------------------------------------------
-        from collections import defaultdict
-        class_to_values = defaultdict(list)
-
-        for t in range(T):
-            if kinds[t] == "value":
-                class_to_values[class_ids[t]].append(t)
-
-        import matplotlib.cm as cm
-        color_map = cm.get_cmap("tab20", len(class_to_values))
-
-        for idx_c, (cid, steps) in enumerate(class_to_values.items()):
-            color = color_map(idx_c)
-
-            # (i,j) の 1セルを「枠線のみ」で囲む（対角は除く）
-            for i in steps:
-                for j in steps:
-                    if i == j:
-                        continue
-                    ax.add_patch(
-                        patches.Rectangle(
-                            (j, i), 1, 1,
-                            fill=False,
-                            edgecolor=color,
-                            linewidth=2.0
-                        )
-                    )
-
-        # ------------------------------------------------------------
-        # ③ query と bind_key の1セル → 枠線で magenta 強調
-        # ------------------------------------------------------------
-        if "query" in kinds:
-            q_step = kinds.index("query")
-            bind_idx = class_ids[q_step]
-            key_step = bind_idx * 2  # key の位置（bind 仕様）
-
-            ax.add_patch(
-                patches.Rectangle(
-                    (key_step, q_step), 1, 1,
-                    fill=False,
-                    edgecolor="magenta",
-                    linewidth=2.5
-                )
-            )
-            ax.add_patch(
-                patches.Rectangle(
-                    (q_step, key_step), 1, 1,
-                    fill=False,
-                    edgecolor="magenta",
-                    linewidth=2.5
-                )
-            )
-
-        # ---- 各 subplot のタイトル ----
-        title = f"{core}_S{S}_eta{eta}_lam{lam}_seed{seed}"
+        title = f"{core_name}_S{S}_eta{eta}_lam{lam}_seed{seed}"
         ax.set_title(title, fontsize=10)
-        ax.set_xlabel("t'")
-        ax.set_ylabel("t")
 
-    # 余り subplot を非表示
+    # 余白 subplot を非表示
     for i in range(N, nrows * ncols):
         r = i // ncols
         c = i % ncols
@@ -204,6 +195,75 @@ def plot_heatmaps_all(csv_list, out_png="h_heatmap_all.png"):
 
 
 # --------------------------------------------------
+# ★ NEW: dot-product Heatmap（各subplotに個別colorbar）
+# --------------------------------------------------
+def plot_heatmaps_all_dot(csv_list, out_png="h_heatmap_dot.png"):
+    N = len(csv_list)
+    ncols = int(np.ceil(np.sqrt(N)))
+    nrows = int(np.ceil(N / ncols))
+
+    # subplot + colorbar のため横幅少し拡張
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=(5.5 * ncols, 4.5 * nrows),
+        squeeze=False
+    )
+
+    # 赤→緑 cmap
+    cmap = LinearSegmentedColormap.from_list(
+        "dot_cmap",
+        [
+            (0.0, "red"),
+            (1.0, "green")
+        ]
+    )
+
+    for idx, csv_path in enumerate(csv_list):
+        H, kinds, class_ids = load_h_csv(csv_path)
+        D = dot_matrix(H)
+
+        core, S, eta, lam, seed = parse_filename(csv_path)
+        core_name = CORE_NAME.get(core, core)
+
+        r = idx // ncols
+        c = idx % ncols
+        ax = axes[r][c]
+
+        # ★ subplot ごとに min/max を計算
+        vmin = float(D.min())
+        vmax = float(D.max())
+
+        # heatmap 描画（colorbar は subplot 単位で作る）
+        hm = sns.heatmap(
+            D,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            ax=ax,
+            cbar=True  # ← 個別 colorbar を作る
+        )
+
+        # ★ colorbar の位置調整（subplot の右に）
+        cbar = hm.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=8)
+
+        # 装飾（対角青＋value枠＋query枠）
+        draw_single_heatmap(ax, D, kinds, class_ids)
+
+        title = f"{core_name}_S{S}_eta{eta}_lam{lam}_seed{seed} (dot)"
+        ax.set_title(title, fontsize=10)
+
+    # 余分 subplot を非表示
+    for i in range(N, nrows * ncols):
+        r = i // ncols
+        c = i % ncols
+        axes[r][c].axis("off")
+
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    print(f"[SAVE] {out_png}")
+
+# --------------------------------------------------
 # main
 # --------------------------------------------------
 def main():
@@ -212,11 +272,10 @@ def main():
     ap.add_argument("--out", type=str, default="h_heatmap_all.png")
     args = ap.parse_args()
 
-    # 保存先ディレクトリ
     save_dir = "plots/h_heatmap"
     os.makedirs(save_dir, exist_ok=True)
 
-    # 保存ファイルパス
+    # cosine 版
     out_path = os.path.join(save_dir, args.out)
 
     csv_list = sorted(glob.glob(os.path.join(args.dir, "H_kv_*.csv")))
@@ -229,6 +288,10 @@ def main():
         print(" -", c)
 
     plot_heatmaps_all(csv_list, out_png=out_path)
+
+    # ★ NEW: dot-product 版
+    out_path_dot = os.path.join(save_dir, "h_heatmap_dot.png")
+    plot_heatmaps_all_dot(csv_list, out_png=out_path_dot)
 
 
 if __name__ == "__main__":
