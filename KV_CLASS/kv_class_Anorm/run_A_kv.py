@@ -137,7 +137,7 @@ def main():
         batch_size=args.batch_size,
         class_ids=class_ids,      # ★ 外で作った Bind クラス列を渡す
         device=device,
-        seed=args.seed + 600,
+        seed=args.seed + 700,
     )
 
     T_total = z_seq.size(0)

@@ -127,6 +127,9 @@ class CoreRNNFW(nn.Module):
         # ==============================================================
         # Time loop
         # ==============================================================
+
+        self.log_A.append(A.detach().cpu().clone())    
+        
         for t in range(T_total):
 
             z_t = z_seq[t].to(device)
@@ -179,6 +182,7 @@ class CoreRNNFW(nn.Module):
                         })
 
                         h_s = (1 - alpha_dyn**2) * h_base + alpha_dyn * Ah
+                        # h_s = h_base + Ah
                         h_s = torch.relu(self.ln_h(h_s))
 
                         h_s_vecs.append(h_s.detach().cpu().clone())
@@ -189,7 +193,6 @@ class CoreRNNFW(nn.Module):
                 self.log_h_sloop.append(h_s_vecs)
 
                 self.log_sloop.append(sloop_t)
-                self.log_A.append(A.detach().cpu().clone())
 
                 # ---- Query classification ----
                 if (head is not None) and (class_ids is not None):

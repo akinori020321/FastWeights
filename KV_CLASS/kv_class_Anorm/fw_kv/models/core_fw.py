@@ -129,6 +129,9 @@ class CoreRNNFW(nn.Module):
         # ==============================================================
         # 時系列展開
         # ==============================================================
+        
+        self.log_A.append(A.detach().cpu().clone())
+
         for t in range(T_total):
 
             z_t = z_seq[t].to(device)
@@ -185,8 +188,6 @@ class CoreRNNFW(nn.Module):
                 self.log_h_sloop.append(h_s_vecs)
 
                 self.log_sloop.append(sloop_t)
-
-                self.log_A.append(A.detach().cpu().clone())
 
                 # -------------------------
                 # classification check
