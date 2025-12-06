@@ -39,7 +39,7 @@ BETA=${BETA:-1.0}
 # Sweep 対象（★★変更点★★）
 # ==============================
 # 小さい → 大きい で 4段階ずつ
-LAMBDA_LIST=${LAMBDA_LIST:-"0.50 0.70 0.85 0.95"}
+LAMBDA_LIST=${LAMBDA_LIST:-"0.70 0.85 0.95"}
 ETA_LIST=${ETA_LIST:-"0.10 0.30 0.50 0.70"}
 
 SEEDS=${SEEDS:-"0"}
