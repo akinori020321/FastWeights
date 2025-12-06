@@ -142,9 +142,6 @@ class CoreRNNFW(nn.Module):
             # ★ base 保存
             self.log_base.append(h_base.detach().cpu().clone())
 
-            # ★ h_t 保存
-            self.log_h_full.append(h.detach().cpu().clone())
-
             # -------------------------
             # Query step
             # -------------------------
@@ -193,6 +190,8 @@ class CoreRNNFW(nn.Module):
                 self.log_h_sloop.append(h_s_vecs)
 
                 self.log_sloop.append(sloop_t)
+
+                self.log_h_full.append(h.detach().cpu().clone())
 
                 # ---- Query classification ----
                 if (head is not None) and (class_ids is not None):
@@ -287,6 +286,8 @@ class CoreRNNFW(nn.Module):
             self.log_A.append(A.detach().cpu().clone())
 
             append_log(kind, cid_raw, A, h)
+
+            self.log_h_full.append(h.detach().cpu().clone())
 
         return None, None
 

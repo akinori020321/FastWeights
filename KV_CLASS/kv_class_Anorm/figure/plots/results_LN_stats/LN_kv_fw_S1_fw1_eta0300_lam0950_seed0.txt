@@ -1,0 +1,15 @@
+[Info] Loading checkpoint: ../checkpoints/kv_fw_S1_fw1_eta0300_lam0950_seed0.pt
+[Info] Found 2 LayerNorm parameters.
+
+ln_h.bias
+  shape : (50,)
+  mean  : -0.049619, std: 0.696239
+  min   : -1.636736, max: 1.118731
+  #pos  : 13, #neg: 37, #zero: 0
+
+ln_h.weight
+  shape : (50,)
+  mean  : 0.703472, std: 0.841104
+  min   : -0.035122, max: 2.079859
+  #pos  : 47, #neg: 3, #zero: 0
+

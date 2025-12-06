@@ -141,8 +141,6 @@ class CoreRNNFW(nn.Module):
             h_base = self.W_h(h) + self.W_g(z_t) + self.b_h
             h = torch.relu(h_base)
 
-            # ★★★ h_t をフルベクトルで保存（追加行）
-            self.log_h_full.append(h.detach().cpu().clone())
             self.log_base.append(h_base.detach().cpu().clone())
 
             # ==========================================================
@@ -188,6 +186,8 @@ class CoreRNNFW(nn.Module):
                 self.log_h_sloop.append(h_s_vecs)
 
                 self.log_sloop.append(sloop_t)
+
+                self.log_h_full.append(h.detach().cpu().clone())
 
                 # -------------------------
                 # classification check
@@ -265,5 +265,7 @@ class CoreRNNFW(nn.Module):
             self.log_A.append(A.detach().cpu().clone())
 
             append_log(kind, cid_raw, A, h)
+
+            self.log_h_full.append(h.detach().cpu().clone())
 
         return None, None

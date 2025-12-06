@@ -110,9 +110,6 @@ class CoreRNN_LN(nn.Module):
             h_base = self.W_h(h) + self.W_g(z_t) + self.b_h
             h = torch.relu(self.ln_h(h_base))
 
-            # フル h を保存
-            self.log_h_full.append(h.detach().cpu().clone())
-
             # ==========================================================
             # Query（最終ステップ）
             # ==========================================================
@@ -156,6 +153,7 @@ class CoreRNN_LN(nn.Module):
                     }
 
                 append_log(kind, cid_raw, A, h)
+                self.log_h_full.append(h.detach().cpu().clone())
                 continue
 
             # ==========================================================
@@ -175,5 +173,7 @@ class CoreRNN_LN(nn.Module):
             self.log_A.append(A.detach().cpu().clone())
 
             append_log(kind, cid_raw, A, h)
+
+            self.log_h_full.append(h.detach().cpu().clone())
 
         return None, None
