@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 # fw_kv/models/core_rnn_fw_ln_residual.py
-#
-# A-dynamics + Query 判定（正解 value の内部状態との比較）を Core 内で完結する版
-# ※ FastWeights / Hebbian / α_dyn / S-loop の計算処理は一切変更していません。
 
 from dataclasses import dataclass
 import torch
@@ -47,6 +44,7 @@ class CoreRNNFW(nn.Module):
         nn.init.kaiming_uniform_(self.W_h.weight, nonlinearity="relu")
         nn.init.xavier_uniform_(self.W_g.weight)
 
+
     def compute_k(self):
         alpha = self.alpha_fw
         k_pos = 1.0 + F.softplus(alpha)
@@ -54,7 +52,7 @@ class CoreRNNFW(nn.Module):
         return torch.where(alpha >= 0, k_pos, k_neg)
 
     # ==============================================================
-    # forward_episode（Query 判定を内部処理）
+    # forward_episode
     # ==============================================================
     def forward_episode(self, z_seq, y, head,
                         event_list=None,
@@ -96,12 +94,12 @@ class CoreRNNFW(nn.Module):
         self.log_sloop = []
         self.log_query = {}
 
-        # ★ value の S-loop 後の h を保存するバッファ（bind_idx → h_value）
         self.bind_h = {}
-        
         self.log_A = []
+        self.log_h_full = []
 
-        self.log_h_full = []     # ★ h_t を保存 ← 追加
+        self.log_base = []          # ★ 追加：h_base 保存
+        self.log_h_sloop = []       # ★ 追加：S-loop h_s 保存リスト
 
         # -------------------------
         # Gain k
@@ -138,30 +136,38 @@ class CoreRNNFW(nn.Module):
             h_base = self.W_h(h) + self.W_g(z_t) + self.b_h
             h = torch.relu(h_base)
 
-            # ★ h_t を保存 ← 追加
+            # ★ base 保存
+            self.log_base.append(h_base.detach().cpu().clone())
+
+            # ★ h_t 保存
             self.log_h_full.append(h.detach().cpu().clone())
 
             # -------------------------
-            # Query（last step）
+            # Query step
             # -------------------------
             if t == T_total - 1:
 
                 sloop_t = []
+                h_s_vecs = []     # ★ S-loop 保存用
+
                 if self.use_A:
                     h_s = h.clone()
                     h0 = h_s.clone()
 
+                    h_s_vecs.append(h_s.detach().cpu().clone())
+
                     for s in range(S_loop):
+
                         Ah = torch.bmm(A, h_s.unsqueeze(-1)).squeeze(-1)
 
-                        dot  = (h_s * Ah).sum(dim=1, keepdim=True)
+                        # dyn
+                        dot = (h_s * Ah).sum(dim=1, keepdim=True)
                         eps = 1e-6
                         norm1 = h_s.norm(dim=1, keepdim=True).clamp_min(eps)
                         norm2 = Ah.norm(dim=1, keepdim=True).clamp_min(eps)
 
                         R = dot / (norm1 * norm2)
                         R_pos = R.clamp(min=0.0, max=1.0)
-
                         alpha_dyn = 1.0 - (1.0 - R_pos) ** k
 
                         sloop_t.append({
@@ -175,12 +181,17 @@ class CoreRNNFW(nn.Module):
                         h_s = (1 - alpha_dyn**2) * h_base + alpha_dyn * Ah
                         h_s = torch.relu(self.ln_h(h_s))
 
+                        h_s_vecs.append(h_s.detach().cpu().clone())
+
                     h = h_s
+
+                # ★ S-loop 全体を保存（t 番目）
+                self.log_h_sloop.append(h_s_vecs)
 
                 self.log_sloop.append(sloop_t)
                 self.log_A.append(A.detach().cpu().clone())
 
-                # ---- Query classification result ----
+                # ---- Query classification ----
                 if (head is not None) and (class_ids is not None):
 
                     q_bind_idx = cid_raw
@@ -191,14 +202,14 @@ class CoreRNNFW(nn.Module):
                         pred = logits.argmax(dim=1)
                         correct = (pred == true_class).float().mean().item()
 
-                        sorted_logits, _ = torch.sort(logits, descending=True)
+                        sorted_logits,_ = torch.sort(logits, descending=True)
                         margin = (sorted_logits[:,0] - sorted_logits[:,1]).mean().item()
 
                         W = head.fc.weight
                         w_true = W[true_class]
-                        w_true = w_true.unsqueeze(0).expand(B, -1)
+                        w_true = w_true.unsqueeze(0).expand(B,-1)
 
-                        cos = F.cosine_similarity(h, w_true, dim=1).mean().item()
+                        cos = F.cosine_similarity(h,w_true,dim=1).mean().item()
 
                     self.log_query = {
                         "true": true_class,
@@ -211,15 +222,22 @@ class CoreRNNFW(nn.Module):
                 append_log(kind, cid_raw, A, h)
                 continue
 
+
             # --------------------------------------------------------
-            # Bind
+            # Bind step
             # --------------------------------------------------------
             sloop_t = []
+            h_s_vecs = []     # ★ 保存用リスト
+
             if self.use_A and S_loop > 0:
                 h_s = h.clone()
                 h0 = h_s.clone()
 
+                h_s_vecs.append(h_s.detach().cpu().clone())
+
                 for s in range(S_loop):
+                    
+
                     Ah = torch.bmm(A, h_s.unsqueeze(-1)).squeeze(-1)
 
                     dot = (h_s * Ah).sum(dim=1, keepdim=True)
@@ -244,15 +262,20 @@ class CoreRNNFW(nn.Module):
                     h_s = (1 - alpha_dyn**2) * h_base + alpha_dyn * Ah
                     h_s = torch.relu(self.ln_h(h_s))
 
+                    h_s_vecs.append(h_s.detach().cpu().clone())
+
                 h = h_s
 
-            # Hebbian update
+            # ★ Bind S-loop 保存
+            self.log_h_sloop.append(h_s_vecs)
+
+            # Hebbian更新
             if self.use_A:
                 h_norm2 = (h**2).sum(dim=1, keepdim=True) + self.eps
                 delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) / h_norm2.unsqueeze(-1)
                 A = self.lambda_ * A + self.eta * delta_A
 
-            # ★ value の内部状態を保存
+            # value 内部状態を保存
             if kind == "value":
                 bind_idx = t // 2
                 self.bind_h[bind_idx] = h.detach().clone()
@@ -263,6 +286,7 @@ class CoreRNNFW(nn.Module):
             append_log(kind, cid_raw, A, h)
 
         return None, None
+
 
 
 

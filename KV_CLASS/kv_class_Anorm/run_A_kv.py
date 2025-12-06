@@ -137,7 +137,7 @@ def main():
         batch_size=args.batch_size,
         class_ids=class_ids,      # ★ 外で作った Bind クラス列を渡す
         device=device,
-        seed=args.seed + 400,
+        seed=args.seed + 600,
     )
 
     T_total = z_seq.size(0)
@@ -212,21 +212,27 @@ def main():
     print(f"[DONE] Saved KV A-dynamics → {args.out_csv}")
 
     # --------------------------------------------------
-    # Save A-matrix CSV
+    # Save A-matrix CSV (FW / tanh のみ)
     # --------------------------------------------------
     A_csv = args.out_csv.replace("A_kv_", "Amat_kv_")
 
-    with open(A_csv, "w", newline="") as f:
-        w = csv.writer(f)
-        d_h = args.d_h
-        header = ["step"] + [f"A[{i},{j}]" for i in range(d_h) for j in range(d_h)]
-        w.writerow(header)
+    # RNN の場合は A が存在しないためスキップ
+    if args.core_type in ["rnn"]:  
+        print("[INFO] core_type=rnn → A-matrix CSV を保存しません")
+    else:
+        with open(A_csv, "w", newline="") as f:
+            w = csv.writer(f)
+            d_h = args.d_h
 
-        for t, A_t in enumerate(model.log_A):
-            A_flat = A_t.view(-1).tolist()
-            w.writerow([t] + A_flat)
+            header = ["step"] + [f"A[{i},{j}]" for i in range(d_h) for j in range(d_h)]
+            w.writerow(header)
 
-    print(f"[DONE] A-matrix CSV → {A_csv}")
+            for t, A_t in enumerate(model.log_A):
+                A_flat = A_t.view(-1).tolist()
+                w.writerow([t] + A_flat)
+
+        print(f"[DONE] A-matrix CSV → {A_csv}")
+
 
     # --------------------------------------------------
     # S-loop CSV 保存
@@ -263,7 +269,7 @@ def main():
 
     print(f"[DONE] Saved CosValue CSV → {cos_csv}")
 
-        # --------------------------------------------------
+    # --------------------------------------------------
     # h-full CSV 保存（★修正版）
     # --------------------------------------------------
     h_csv = args.out_csv.replace("A_kv_", "H_kv_")
@@ -286,6 +292,51 @@ def main():
 
     print(f"[DONE] Saved h-full CSV → {h_csv}")
 
+    # --------------------------------------------------
+    # S-loop（base + h_s ベクトル）生データ保存
+    # --------------------------------------------------
+    sloop_vec_csv = args.out_csv.replace("A_kv_", "SloopVec_kv_")
+
+    # log_h_sloop / log_base の両方が存在するか確認
+    if hasattr(model, "log_base") and hasattr(model, "log_h_sloop"):
+
+        with open(sloop_vec_csv, "w", newline="") as f:
+            w = csv.writer(f)
+
+            # ---- header ----
+            header = ["t", "s", "vec_type", "kind", "class_id"]
+            header += [f"h[{i}]" for i in range(args.d_h)]
+            w.writerow(header)
+
+            T = len(model.log_base)
+
+            for t in range(T):
+
+                # kind, class_id 判定
+                kind = model.log_kind[t] if t < len(model.log_kind) else "-"
+                cid  = int(model.log_class[t]) if t < len(model.log_class) else -1
+
+                # ---------------------------
+                # (1) base（s = -1）
+                # ---------------------------
+                h_base = model.log_base[t]     # shape: (B, d_h)
+                h_base_mean = h_base.mean(dim=0).tolist()
+
+                w.writerow([t, -1, "base", kind, cid] + h_base_mean)
+
+                # ---------------------------
+                # (2) S-loop の h_s
+                # ---------------------------
+                h_s_list = model.log_h_sloop[t] if t < len(model.log_h_sloop) else []
+
+                for s, h_s in enumerate(h_s_list):
+                    h_s_mean = h_s.mean(dim=0).tolist()
+                    w.writerow([t, s, "hs", kind, cid] + h_s_mean)
+
+        print(f"[DONE] Saved S-loop vector CSV → {sloop_vec_csv}")
+
+    else:
+        print("[INFO] S-loop vector CSV は log_base / log_h_sloop が無いためスキップしました。")
 
 if __name__ == "__main__":
     main()

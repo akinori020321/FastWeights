@@ -97,6 +97,8 @@ class CoreRNNFW(nn.Module):
         self.log_class = []
         self.log_h = []
         self.log_sloop = []
+        self.log_h_sloop = []     # ★ 全 t×S の h_s ベクトル保存
+        self.log_base = []         # ★ 各 t の h_base 保存
         self.log_query = {}
 
         # ★ value S-loop 後の h を保存
@@ -138,6 +140,7 @@ class CoreRNNFW(nn.Module):
 
             # ★★★ h_t をフルベクトルで保存（追加行）
             self.log_h_full.append(h.detach().cpu().clone())
+            self.log_base.append(h_base.detach().cpu().clone())
 
             # ==========================================================
             # Query
@@ -145,10 +148,13 @@ class CoreRNNFW(nn.Module):
             if t == T_total - 1:
 
                 sloop_t = []
+                h_s_vecs = [] 
 
                 if self.use_A:
                     h_s = h.clone()
                     h0 = h_s.clone()
+
+                    h_s_vecs.append(h_s.detach().cpu().clone())
 
                     for s in range(S_loop):
                         Ah = torch.bmm(A, h_s.unsqueeze(2)).squeeze(-1)
@@ -172,7 +178,11 @@ class CoreRNNFW(nn.Module):
 
                         h_s = torch.relu(self.ln_h(h_base + Ah))
 
+                        h_s_vecs.append(h_s.detach().cpu().clone())
+
                     h = h_s
+                
+                self.log_h_sloop.append(h_s_vecs)
 
                 self.log_sloop.append(sloop_t)
 
@@ -214,10 +224,13 @@ class CoreRNNFW(nn.Module):
             # Bind
             # ==========================================================
             sloop_t = []
+            h_s_vecs = []   
 
             if self.use_A and S_loop > 0:
                 h_s = h.clone()
                 h0 = h_s.clone()
+
+                h_s_vecs.append(h_s.detach().cpu().clone())
 
                 for s in range(S_loop):
                     Ah = torch.bmm(A, h_s.unsqueeze(2)).squeeze(-1)
@@ -231,7 +244,11 @@ class CoreRNNFW(nn.Module):
 
                     h_s = torch.relu(self.ln_h(h_base + Ah))
 
+                    h_s_vecs.append(h_s.detach().cpu().clone())
+
                 h = h_s
+            
+            self.log_h_sloop.append(h_s_vecs)
 
             # ===== Hebbian =====
             if self.use_A:
