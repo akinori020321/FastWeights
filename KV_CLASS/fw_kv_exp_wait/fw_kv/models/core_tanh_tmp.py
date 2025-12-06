@@ -46,9 +46,7 @@ class CoreRNNFW(nn.Module):
         self.S = cfg.inner_steps
 
         # α_fw が凸⇔凹を司る
-        self.alpha_fw = nn.Parameter(torch.tensor(cfg.alpha_fw, dtype=torch.float32))
-        # Ah のスケーリング係数 β（学習可能パラメータ）
-        self.beta = nn.Parameter(torch.tensor(cfg.beta, dtype=torch.float32))
+        self.alpha_fw = nn.Parameter(torch.tensor(cfg.alpha_fw))
 
         # RNN本体
         self.W_h = nn.Linear(self.d_h, self.d_h, bias=False)
@@ -103,22 +101,10 @@ class CoreRNNFW(nn.Module):
 
             # --- RNN 基本更新 ---
             h_base = self.W_h(h) + self.W_g(z_t) + self.b_h
-            h = torch.relu(self.ln_h(h_base))
+            h = torch.relu(h_base)
 
             # ----------------------------------------------------------
-            # ★ Query (t == T_total - 1) → Ba-style
-            # ----------------------------------------------------------
-            if t == T_total - 1:
-                if self.use_A and S_loop > 0:
-                    for _ in range(S_loop):
-                        Ah = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1)
-                        # Ba-style: h_base + β·Ah を LN → ReLU
-                        h = torch.relu(self.ln_h(h_base + self.beta * Ah))
-                # Query では Hebbian 更新しない
-                continue
-
-            # ----------------------------------------------------------
-            # Self-consistent S-loop（Bind / Wait 用）
+            # Self-consistent S-loop
             # ----------------------------------------------------------
             if self.use_A and S_loop > 0:
                 for _ in range(S_loop):
@@ -141,11 +127,11 @@ class CoreRNNFW(nn.Module):
                     h = torch.relu(self.ln_h(h))
 
             # ----------------------------------------------------------
-            # Hebbian 更新 (Bind のみを想定)
+            # Hebbian 更新 (Bind のみ)
             # ----------------------------------------------------------
             if self.use_A:
                 h_norm2 = (h**2).sum(dim=1, keepdim=True) + self.eps
-                delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) # / h_norm2.unsqueeze(-1)
+                delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) / h_norm2.unsqueeze(-1)
                 A = self.lambda_ * A + self.eta * delta_A
 
         # ==============================================================
