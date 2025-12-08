@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
 # fw_kv/models/core_rnn_fw_ln_residual.py
-#
-# Fast Weights を補正項として扱う Residual 型 RNN
-# α_fw の符号で「上に凸 / 下に凸」の両方を実現するゲイン関数を採用。
-# Bind では Self-consistent S-loop、Query では Ba-style (h_base + βAh) を使用。
-#
-# ★ 本バージョンは旧 forward_episode のログ形式を完全に残しつつ、
-#    計算処理だけを最新版に書き換えた「Log-compatible Modern FW Core」です。
 
 from dataclasses import dataclass
 import torch
@@ -15,9 +8,6 @@ import torch.nn.functional as F
 import numpy as np
 
 
-# -------------------------------------------------------------
-# Spectral radius (for stats)
-# -------------------------------------------------------------
 @torch.no_grad()
 def batch_spectral_radius(A, iters=20):
     B, d, _ = A.shape
@@ -26,21 +16,18 @@ def batch_spectral_radius(A, iters=20):
 
     for _ in range(iters):
         Av = torch.bmm(A, v.unsqueeze(-1)).squeeze(-1)
-        v = Av / (Av.norm(dim=1, keepdim=True) + 1e-8)
+        v = Av / (v.norm(dim=1, keepdim=True) + 1e-8)
 
     Av = torch.bmm(A, v.unsqueeze(-1)).squeeze(-1)
     return (Av * v).sum(dim=1).mean().item()
 
 
-# ==============================================================
-# CoreRNNFW (Residual FW with SC-loop + Ba-style Query)
-# ==============================================================
 class CoreRNNFW(nn.Module):
 
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-
+        
         self.d_g, self.d_h = cfg.glimpse_dim, cfg.hidden_dim
         self.lambda_ = cfg.lambda_decay
         self.eta = cfg.eta
@@ -48,12 +35,8 @@ class CoreRNNFW(nn.Module):
         self.use_A = cfg.use_A
         self.S = cfg.inner_steps
 
-        # α_fw：凸⇄凹ゲイン
-        self.alpha_fw = nn.Parameter(torch.tensor(cfg.alpha_fw, dtype=torch.float32))
-        # β：Query の Ah スケール
-        # self.beta = nn.Parameter(torch.tensor(cfg.beta, dtype=torch.float32))
+        self.alpha_fw = nn.Parameter(torch.tensor(cfg.alpha_fw))
 
-        # RNN 本体
         self.W_h = nn.Linear(self.d_h, self.d_h, bias=False)
         self.W_g = nn.Linear(self.d_g, self.d_h, bias=False)
         self.b_h = nn.Parameter(torch.zeros(self.d_h))
@@ -62,22 +45,15 @@ class CoreRNNFW(nn.Module):
         nn.init.kaiming_uniform_(self.W_h.weight, nonlinearity="relu")
         nn.init.xavier_uniform_(self.W_g.weight)
 
-    # --------------------------------------------------------------
-    # α_fw の符号で凸⇄凹を切り替えるゲイン k(α)
-    # --------------------------------------------------------------
+
     def compute_k(self):
         alpha = self.alpha_fw
-
-        # α>0 → k>1（上に凸）
         k_pos = 1.0 + F.softplus(alpha)
-
-        # α<0 → 0<k<1（下に凸）
         k_neg = 1.0 / (1.0 + F.softplus(-alpha))
-
         return torch.where(alpha >= 0, k_pos, k_neg)
 
     # ==============================================================
-    # forward_episode（ログ互換版）
+    # forward_episode
     # ==============================================================
     def forward_episode(self, z_seq, y, head,
                         event_list=None,
@@ -88,7 +64,7 @@ class CoreRNNFW(nn.Module):
                         compute_stats=False):
 
         # -------------------------
-        # Input shape
+        # Sequence shape
         # -------------------------
         if isinstance(z_seq, list):
             T_total = len(z_seq)
@@ -97,7 +73,7 @@ class CoreRNNFW(nn.Module):
             T_total = z_seq.size(0)
             B = z_seq.size(1)
 
-        device = z_seq[0].device if isinstance(z_seq, list) else z_seq.device
+        device = z_seq.device if not isinstance(z_seq, list) else z_seq[0].device
         S_loop = S if S is not None else self.S
 
         # -------------------------
@@ -107,7 +83,7 @@ class CoreRNNFW(nn.Module):
         A = torch.zeros(B, self.d_h, self.d_h, device=device)
 
         # -------------------------
-        # Reset logs（旧版と完全互換）
+        # Logs
         # -------------------------
         self.log_froA = []
         self.log_specA = []
@@ -118,19 +94,21 @@ class CoreRNNFW(nn.Module):
         self.log_h = []
         self.log_sloop = []
         self.log_query = {}
+
         self.bind_h = {}
         self.log_A = []
         self.log_h_full = []
-        self.log_base = []
-        self.log_h_sloop = []
+
+        self.log_base = []          # ★ 追加：h_base 保存
+        self.log_h_sloop = []       # ★ 追加：S-loop h_s 保存リスト
 
         # -------------------------
-        # Gain k(α)
+        # Gain k
         # -------------------------
         k = self.compute_k()
 
         # -------------------------
-        # Log helper
+        # Logging function
         # -------------------------
         def append_log(kind, cid, A_t, h_t):
             froA = torch.norm(A_t, p="fro", dim=(1,2)).mean().item()
@@ -150,30 +128,30 @@ class CoreRNNFW(nn.Module):
         # ==============================================================
         # Time loop
         # ==============================================================
-        self.log_A.append(A.detach().cpu().clone())  # 初期A
 
+        self.log_A.append(A.detach().cpu().clone())    
+        
         for t in range(T_total):
 
             z_t = z_seq[t].to(device)
             kind, cid_raw = event_list[t] if event_list is not None else ("-", -1)
 
-            # ----------------------------------------------------------
-            # Base RNN update
-            # ----------------------------------------------------------
+            # base RNN update
             h_base = self.W_h(h) + self.W_g(z_t) + self.b_h
-            h = torch.relu(self.ln_h(h_base))
+            h = torch.relu(h_base)
 
+            # ★ base 保存
             self.log_base.append(h_base.detach().cpu().clone())
 
-            # ----------------------------------------------------------
-            # Query step (Ba-style)
-            # ----------------------------------------------------------
+            # -------------------------
+            # Query step
+            # -------------------------
             if t == T_total - 1:
 
-                sloop_logs = []
-                h_s_vecs = []
+                sloop_t = []
+                h_s_vecs = []     # ★ S-loop 保存用
 
-                if self.use_A and S_loop > 0:
+                if self.use_A:
                     h_s = h.clone()
                     h0 = h_s.clone()
 
@@ -183,28 +161,41 @@ class CoreRNNFW(nn.Module):
 
                         Ah = torch.bmm(A, h_s.unsqueeze(-1)).squeeze(-1)
 
-                        sloop_logs.append({
+                        # dyn
+                        dot = (h_s * Ah).sum(dim=1, keepdim=True)
+                        eps = 1e-6
+                        norm1 = h_s.norm(dim=1, keepdim=True).clamp_min(eps)
+                        norm2 = Ah.norm(dim=1, keepdim=True).clamp_min(eps)
+
+                        R = dot / (norm1 * norm2)
+                        R_pos = R.clamp(min=0.0, max=1.0)
+                        alpha_dyn = 1.0 - (1.0 - R_pos) ** k
+
+                        sloop_t.append({
                             "s": s,
                             "h_norm": h_s.norm(dim=1).mean().item(),
                             "Ah_norm": Ah.norm(dim=1).mean().item(),
                             "cos_h0": F.cosine_similarity(h0, h_s, dim=1).mean().item(),
-                            "alpha_dyn": self.beta.mean().item(),
+                            "alpha_dyn": alpha_dyn.mean().item(),
                         })
 
-                        # Ba-style: h ← ReLU(LN(h_base + βAh))
-                        # h_s = torch.relu(self.ln_h(h_base + self.beta * Ah))
-                        h_s = torch.relu(self.ln_h(h_base + Ah))
+                        h_s = (1 - alpha_dyn**2) * h_base + alpha_dyn * Ah
+                        # h_s = h_base + Ah
+                        h_s = torch.relu(self.ln_h(h_s))
 
                         h_s_vecs.append(h_s.detach().cpu().clone())
 
                     h = h_s
 
-                self.log_sloop.append(sloop_logs)
+                # ★ S-loop 全体を保存（t 番目）
                 self.log_h_sloop.append(h_s_vecs)
+
+                self.log_sloop.append(sloop_t)
+
                 self.log_h_full.append(h.detach().cpu().clone())
 
-                # Query classification
-                if head is not None and class_ids is not None:
+                # ---- Query classification ----
+                if (head is not None) and (class_ids is not None):
 
                     q_bind_idx = cid_raw
                     true_class = class_ids[q_bind_idx]
@@ -218,8 +209,10 @@ class CoreRNNFW(nn.Module):
                         margin = (sorted_logits[:,0] - sorted_logits[:,1]).mean().item()
 
                         W = head.fc.weight
-                        w_true = W[true_class].unsqueeze(0).expand(B,-1)
-                        cos = F.cosine_similarity(h, w_true, dim=1).mean().item()
+                        w_true = W[true_class]
+                        w_true = w_true.unsqueeze(0).expand(B,-1)
+
+                        cos = F.cosine_similarity(h,w_true,dim=1).mean().item()
 
                     self.log_query = {
                         "true": true_class,
@@ -230,35 +223,38 @@ class CoreRNNFW(nn.Module):
                     }
 
                 append_log(kind, cid_raw, A, h)
-
                 continue
 
-            # ----------------------------------------------------------
-            # Bind / Wait : Self-consistent S-loop（SC-FW）
-            # ----------------------------------------------------------
-            sloop_logs = []
-            h_s_vecs = []
+
+            # --------------------------------------------------------
+            # Bind step
+            # --------------------------------------------------------
+            sloop_t = []
+            h_s_vecs = []     # ★ 保存用リスト
 
             if self.use_A and S_loop > 0:
-
                 h_s = h.clone()
                 h0 = h_s.clone()
+
                 h_s_vecs.append(h_s.detach().cpu().clone())
 
                 for s in range(S_loop):
+                    
 
                     Ah = torch.bmm(A, h_s.unsqueeze(-1)).squeeze(-1)
 
                     dot = (h_s * Ah).sum(dim=1, keepdim=True)
-                    norm1 = h_s.norm(dim=1, keepdim=True).clamp_min(1e-6)
-                    norm2 = Ah.norm(dim=1, keepdim=True).clamp_min(1e-6)
+
+                    eps = 1e-6
+                    norm1 = h_s.norm(dim=1, keepdim=True).clamp_min(eps)
+                    norm2 = Ah.norm(dim=1, keepdim=True).clamp_min(eps)
+
                     R = dot / (norm1 * norm2)
                     R_pos = R.clamp(min=0.0, max=1.0)
 
-                    # Gain
-                    alpha_dyn = 1 - (1 - R_pos)**k
+                    alpha_dyn = 1.0 - (1.0 - R_pos) ** k
 
-                    sloop_logs.append({
+                    sloop_t.append({
                         "s": s,
                         "h_norm": h_s.norm(dim=1).mean().item(),
                         "Ah_norm": Ah.norm(dim=1).mean().item(),
@@ -266,7 +262,6 @@ class CoreRNNFW(nn.Module):
                         "alpha_dyn": alpha_dyn.mean().item(),
                     })
 
-                    # SC-loop correction
                     h_s = (1 - alpha_dyn**2) * h_base + alpha_dyn * Ah
                     h_s = torch.relu(self.ln_h(h_s))
 
@@ -274,24 +269,67 @@ class CoreRNNFW(nn.Module):
 
                 h = h_s
 
-            self.log_sloop.append(sloop_logs)
+            # ★ Bind S-loop 保存
             self.log_h_sloop.append(h_s_vecs)
 
-            # ----------------------------------------------------------
-            # Hebbian Update
-            # ----------------------------------------------------------
+            # Hebbian更新
             if self.use_A:
                 h_norm2 = (h**2).sum(dim=1, keepdim=True) + self.eps
                 delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) / h_norm2.unsqueeze(-1)
                 A = self.lambda_ * A + self.eta * delta_A
-            
+
+            # value 内部状態を保存
             if kind == "value":
                 bind_idx = t // 2
                 self.bind_h[bind_idx] = h.detach().clone()
 
+            self.log_sloop.append(sloop_t)
             self.log_A.append(A.detach().cpu().clone())
-            self.log_h_full.append(h.detach().clone())
 
             append_log(kind, cid_raw, A, h)
 
+            self.log_h_full.append(h.detach().cpu().clone())
+
         return None, None
+
+
+
+
+
+            # # --- 補正項として Fast Weights 寄与を追加（非線形自己整合型 α + Sループ）---
+            # if self.use_A and self.S > 0:
+            #     for _ in range(self.S):
+            #         Ah = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1)     # (B, d_h)
+            #         ah_norm = Ah.norm(dim=1, keepdim=True)             # ||A h||
+                    
+            #         # --- tanh内部でスケーリングを制御 ---
+            #         # α が内部に入り、非線形的に符号反転も許す
+            #         alpha_dyn = torch.tanh(-self.alpha_fw * ah_norm)   # [-1, +1] の範囲
+
+            #         # --- 自己整合的な補正を適用 ---
+            #         h = h_base + alpha_dyn * Ah                        # Residual補正
+            #         h = torch.relu(self.ln_h(h))
+
+
+
+                    # === 新しい抑制ゲイン（符号反転なし）======================
+                    # g(r) = alpha / (1 + r)
+                    # alpha_pos = F.softplus(self.alpha_fw)
+                    # alpha_dyn = alpha_pos * torch.tanh(1 / (1.0 + ah_norm))
+                    # =============================================================
+
+
+
+                    # Ah = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1)    # (B, d_h)
+                    # ah_norm = Ah.norm(dim=1, keepdim=True)            # ||A h||
+
+                    # # 初期値:-0.5
+                    # alpha_pos = F.softplus(self.alpha_fw) + 1              # α_pos > 0
+                    # alpha_dyn = alpha_pos / torch.sqrt(1.0 + ah_norm)  # 抑制は入るが弱め
+
+
+                    # alpha_log_this_step.append(alpha_dyn.mean().item())
+
+                    # # --- 自己整合的な補正 ---
+                    # h = h_base + alpha_dyn * Ah                      # Residual correction
+                    # h = torch.relu(self.ln_h(h))

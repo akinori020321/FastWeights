@@ -143,7 +143,7 @@ def main():
     plt.ylim(0, 1.0)
 
     # === ★ 横軸は 1〜TBIND_MAX のまま ===
-    plt.xlim(1, TBIND_MAX)
+    plt.xlim(1, TBIND_MAX+1)
 
     # === ★ tick は “データがある T_bind のみ” ===
     tick_T = sorted(set().union(*[model_data[m][0] for m in model_data]))

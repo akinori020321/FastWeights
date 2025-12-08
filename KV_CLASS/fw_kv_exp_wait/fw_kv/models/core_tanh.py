@@ -48,7 +48,7 @@ class CoreRNNFW(nn.Module):
         # α_fw が凸⇔凹を司る
         self.alpha_fw = nn.Parameter(torch.tensor(cfg.alpha_fw, dtype=torch.float32))
         # Ah のスケーリング係数 β（学習可能パラメータ）
-        self.beta = nn.Parameter(torch.tensor(cfg.beta, dtype=torch.float32))
+        # self.beta = nn.Parameter(torch.tensor(cfg.beta, dtype=torch.float32))
 
         # RNN本体
         self.W_h = nn.Linear(self.d_h, self.d_h, bias=False)
@@ -113,7 +113,8 @@ class CoreRNNFW(nn.Module):
                     for _ in range(S_loop):
                         Ah = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1)
                         # Ba-style: h_base + β·Ah を LN → ReLU
-                        h = torch.relu(self.ln_h(h_base + self.beta * Ah))
+                        # h = torch.relu(self.ln_h(h_base + self.beta * Ah))
+                        h = torch.relu(self.ln_h(h_base + Ah))
                 # Query では Hebbian 更新しない
                 continue
 
@@ -145,7 +146,7 @@ class CoreRNNFW(nn.Module):
             # ----------------------------------------------------------
             if self.use_A:
                 h_norm2 = (h**2).sum(dim=1, keepdim=True) + self.eps
-                delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) # / h_norm2.unsqueeze(-1)
+                delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) / h_norm2.unsqueeze(-1)
                 A = self.lambda_ * A + self.eta * delta_A
 
         # ==============================================================
