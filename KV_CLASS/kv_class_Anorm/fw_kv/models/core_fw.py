@@ -139,7 +139,7 @@ class CoreRNNFW(nn.Module):
 
             # ===== Basic RNN =====
             h_base = self.W_h(h) + self.W_g(z_t) + self.b_h
-            h = torch.relu(h_base)
+            h = torch.relu(self.ln_h(h_base))
 
             self.log_base.append(h_base.detach().cpu().clone())
 

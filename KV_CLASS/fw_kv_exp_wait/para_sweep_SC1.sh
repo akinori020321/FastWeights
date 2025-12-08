@@ -32,15 +32,15 @@ CLIP=${CLIP:-0.7}
 # タスク設定
 # ==============================
 T_BIND=${T_BIND:-5}
-DELTA_WAIT=${DELTA_WAIT:-0}
+DELTA_WAIT=${DELTA_WAIT:-2}
 BETA=${BETA:-1.0}
 
 # ==============================
-# Sweep 対象（★★変更点★★）
+# Sweep 対象
 # ==============================
-# 小さい → 大きい で 4段階ずつ
-LAMBDA_LIST=${LAMBDA_LIST:-"0.70 0.85 0.95"}
-ETA_LIST=${ETA_LIST:-"0.10 0.30 0.50 0.70"}
+# 小さい → 大きい で 3段階ずつ
+LAMBDA_LIST=${LAMBDA_LIST:-"0.65 0.85 0.95"}
+ETA_LIST=${ETA_LIST:-"0.10 0.30 0.50"}
 
 SEEDS=${SEEDS:-"0"}
 S_LIST=${S_LIST:-"1"}      # 固定でOK。変更したい場合はここ
@@ -56,7 +56,7 @@ PYTHON_BIN=${PYTHON_BIN:-python3}
 # ==========================================
 # 出力設定
 # ==========================================
-OUT_DIR=${OUT_DIR:-"results_SC1_lambda_eta_sweep"}
+OUT_DIR=${OUT_DIR:-"results_SC1_lambda_eta_sweep_notbetanorm"}
 
 if [[ -d "${OUT_DIR}" ]]; then
   BACKUP="${OUT_DIR}_backup_$(date +"%Y%m%d_%H%M%S")"

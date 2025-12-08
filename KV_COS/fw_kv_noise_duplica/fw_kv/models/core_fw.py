@@ -76,7 +76,7 @@ class CoreRNNFW(nn.Module):
     def forward_step(self, z_t, h_prev, A_prev):
 
         base = self.W_h(h_prev) + self.W_g(z_t) + self.b_h
-        h_t = torch.relu(base)
+        h_t = torch.relu(self.ln_h(base))
 
         A_k = A_prev.clone()
 

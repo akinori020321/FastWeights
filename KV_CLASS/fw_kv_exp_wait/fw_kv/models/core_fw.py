@@ -80,7 +80,7 @@ class CoreRNNFW(nn.Module):
             g_t = z_list  # (B, d_g)
 
         base = self.W_h(h_prev) + self.W_g(g_t) + self.b_h
-        h_t = torch.relu(base)
+        h_t = torch.relu(self.ln_h(base))
         A_k = A_prev.clone()
 
         if self.use_A:
