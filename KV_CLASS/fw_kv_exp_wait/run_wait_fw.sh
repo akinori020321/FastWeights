@@ -36,14 +36,14 @@ T_BIND=${T_BIND:-5}
 # ==========================================
 # Fast Weights パラメータ（Sweep対応）
 # ==========================================
-LAMBDA=${LAMBDA:-}
-ETA=${ETA:-}
-S_LIST=${S_LIST:-""} 
+LAMBDA=${LAMBDA:-0.95}
+ETA=${ETA:-0.30}
+S_LIST=${S_LIST:-"1"} 
 
 # ==========================================
 # Sweep 対象
 # ==========================================
-DELTA_WAIT_LIST=${DELTA_WAIT_LIST:-"2 4 6 8 10 12 15 18"}
+DELTA_WAIT_LIST=${DELTA_WAIT_LIST:-"0 2 4 6 8 10 12 15 18"}
 SIGMA=${SIGMA:-0.00}
 BETA=${BETA:-1.0}
 SEEDS=${SEEDS:-"0"}

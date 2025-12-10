@@ -40,7 +40,7 @@ S_LIST=${S_LIST:-"1"}
 # ==========================================
 T_BIND_LIST=${T_BIND_LIST:-"2 4 6 8 10 12 15 18"}
 FW_LIST=${FW_LIST:-"0"}
-DELTA_WAIT=0
+DELTA_WAIT=2
 SIGMA=0.00
 BETA=${BETA:-1.0}
 SEEDS=${SEEDS:-"0"}

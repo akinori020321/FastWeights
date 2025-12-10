@@ -31,16 +31,16 @@ CLIP=${CLIP:-0.7}
 # ==========================================
 # Fast Weights パラメータ
 # ==========================================
-LAMBDA=${LAMBDA:-}
-ETA=${ETA:-}
-S_LIST=${S_LIST:-""}    
+LAMBDA=${LAMBDA:-0.95}
+ETA=${ETA:-0.30}
+S_LIST=${S_LIST:-"1"}    
 
 # ==========================================
 # Sweep 対象
 # ==========================================
 T_BIND_LIST=${T_BIND_LIST:-"2 4 6 8 10 12 15 18"}
 FW_LIST=${FW_LIST:-"1"}
-DELTA_WAIT=0
+DELTA_WAIT=2
 SIGMA=0.00
 BETA=${BETA:-1.0}
 SEEDS=${SEEDS:-"0"}

@@ -43,7 +43,7 @@ S_LIST=${S_LIST:-""}
 # ==========================================
 # Sweep 対象（σは固定）
 # ==========================================
-DELTA_WAIT_LIST=${DELTA_WAIT_LIST:-"2 4 6 8 10 12 15 18"}
+DELTA_WAIT_LIST=${DELTA_WAIT_LIST:-"0 2 4 6 8 10 12 15 18"}
 SIGMA=${SIGMA:-0.00}
 BETA=${BETA:-1.0}
 SEEDS=${SEEDS:-"0"}
