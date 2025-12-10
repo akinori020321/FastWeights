@@ -32,7 +32,7 @@ CLIP=${CLIP:-0.7}
 # タスク設定
 # ==============================
 T_BIND=${T_BIND:-12}
-DELTA_WAIT=${DELTA_WAIT:-0}
+DELTA_WAIT=${DELTA_WAIT:-2}
 BETA=${BETA:-0.0}
 DUPLICATE=${DUPLICATE:-4}      # ★★ 復活 ★★
 
@@ -42,8 +42,8 @@ SIGMA=${SIGMA:-1.0}
 # ==============================
 # Sweep 対象（λ × η）
 # ==============================
-LAMBDA_LIST=${LAMBDA_LIST:-"0.50 0.70 0.85 0.95"}
-ETA_LIST=${ETA_LIST:-"0.10 0.30 0.50 0.70"}
+LAMBDA_LIST=${LAMBDA_LIST:-"0.65 0.80 0.95"}
+ETA_LIST=${ETA_LIST:-"0.30 0.50 0.70"}
 
 S_LIST=${S_LIST:-"1"}
 SEEDS=${SEEDS:-"0"}
@@ -109,7 +109,7 @@ run_one () {
     --d_h "${DH}" \
     --num_classes "${NUM_CLASSES}" \
     --T_bind "${T_BIND}" \
-    --duplicate "${DUPLICATE}" \      # ★★ run.py に渡す部分 ★★
+    --duplicate "${DUPLICATE}" \
     --S "${S}" \
     --beta "${BETA}" \
     --delta_wait "${DELTA_WAIT}" \

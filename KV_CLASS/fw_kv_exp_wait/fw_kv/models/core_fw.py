@@ -99,7 +99,7 @@ class CoreRNNFW(nn.Module):
                 
         else:
             # base にだけ LN → ReLU
-            h_t = torch.relu(self.ln_h(base))
+            pass
 
 
         return h_t, A_k

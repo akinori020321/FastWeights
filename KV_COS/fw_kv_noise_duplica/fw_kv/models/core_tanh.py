@@ -155,7 +155,7 @@ class CoreRNNFW(nn.Module):
             # ----------------------------------------------------------
             if self.use_A:
                 h_norm2 = (h**2).sum(dim=1, keepdim=True) + self.eps
-                delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) # / h_norm2.unsqueeze(-1)
+                delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) #/ h_norm2.unsqueeze(-1)
                 A = self.lambda_ * A + self.eta * delta_A
 
         # ----------------------------
