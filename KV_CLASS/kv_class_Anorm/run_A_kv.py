@@ -81,6 +81,9 @@ def main():
     ap.add_argument("--T_bind", type=int, default=5)
     ap.add_argument("--batch_size", type=int, default=128)
 
+    ap.add_argument("--num_wait", type=int, default=0,
+                    help="Bind の後に挟む Wait ステップの数")
+
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--gpu", action="store_true")
     ap.set_defaults(use_ln=True, use_fw=True)
@@ -129,16 +132,29 @@ def main():
     print(f"[Info] class_ids = {class_ids}")
 
     # --------------------------------------------------
+    # ★ 待機ベクトル（固定）の生成（学習時と完全に同じ方式）
+    # --------------------------------------------------
+    rng_wait = np.random.RandomState(999)  # 固定seed
+    wait_vec = rng_wait.randn(args.d_g).astype(np.float32)
+    wait_vec /= np.linalg.norm(wait_vec) + 1e-8  # unit norm
+
+    # torch テンソルに変換して device に載せる
+    wait_vec = torch.from_numpy(wait_vec).float().to(device)
+
+    # --------------------------------------------------
     # KV + Query sequence（KVDataset と同じ方式）
     # --------------------------------------------------
     z_seq, event_list = make_keyvalue_sequence(
         mu_value=mu_value,
         key_proto=key_proto,
         batch_size=args.batch_size,
-        class_ids=class_ids,      # ★ 外で作った Bind クラス列を渡す
+        class_ids=class_ids,
         device=device,
-        seed=args.seed + 6000,
+        seed=args.seed + 3000,
+        num_wait=args.num_wait,           # ★ 追加
+        wait_vec=wait_vec,                # ★ 追加
     )
+
 
     T_total = z_seq.size(0)
     B = z_seq.size(1)
@@ -160,11 +176,12 @@ def main():
         head=head,
         event_list=event_list,
         S=args.S,
-        class_ids=class_ids,      # ★ ここでも同じ class_ids を渡す
+        class_ids=class_ids,
         mu_value=mu_value,
         train=False,
         compute_stats=False,
     )
+
 
     # --------------------------------------------------
     # ☆ Query 結果表示

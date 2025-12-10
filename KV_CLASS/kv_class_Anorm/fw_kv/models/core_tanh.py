@@ -188,7 +188,7 @@ class CoreRNNFW(nn.Module):
                             "h_norm": h_s.norm(dim=1).mean().item(),
                             "Ah_norm": Ah.norm(dim=1).mean().item(),
                             "cos_h0": F.cosine_similarity(h0, h_s, dim=1).mean().item(),
-                            "alpha_dyn": self.beta.mean().item(),
+                            "alpha_dyn": alpha_dyn.mean().item(),
                         })
 
                         # Ba-style: h ← ReLU(LN(h_base + βAh))
@@ -282,7 +282,7 @@ class CoreRNNFW(nn.Module):
             # ----------------------------------------------------------
             if self.use_A:
                 h_norm2 = (h**2).sum(dim=1, keepdim=True) + self.eps
-                delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) / h_norm2.unsqueeze(-1)
+                delta_A = torch.bmm(h.unsqueeze(2), h.unsqueeze(1)) # / h_norm2.unsqueeze(-1)
                 A = self.lambda_ * A + self.eta * delta_A
             
             if kind == "value":

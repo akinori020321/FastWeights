@@ -12,6 +12,9 @@ NUM_CLASSES=10
 TBIND=5
 BATCH=1
 
+# ★ 追加：待機ステップ数
+NUM_WAIT=2   # ← 好きな値に変更（例：3回 wait を挿入）
+
 GPU="--gpu"
 USE_FW="--use_fw"
 USE_LN="--use_ln"
@@ -50,18 +53,13 @@ for CORE in ${CORE_LIST}; do
         echo "-----------------------------------------------"
 
         # ===== S をファイル名からパース =====
-        # kv_fw_S3_fw1_eta0300_lam0850_seed0.pt → S=3
         S=$(basename "${CKPT}" | sed -E 's/.*_S([0-9]+)_.*/\1/')
 
         # ===== 出力ファイル名作成 =====
-        # kv_fw_S1_fw1_eta0300_lam0850_seed0 → eta0300_lam0850_seed0
         BASE=$(basename "${CKPT}" .pt)
 
-        # kv_fw_S{S}_fw1_ を除去して suffix を作る
         REST=${BASE#kv_${CORE}_S${S}_fw1_}
 
-        # 期待される形式:
-        # A_kv_fw_S1_eta0300_lam0850_seed0.csv
         OUTCSV="${OUTDIR}/A_kv_${CORE}_S${S}_${REST}.csv"
 
         # ===== run_A_kv 実行 =====
@@ -75,6 +73,7 @@ for CORE in ${CORE_LIST}; do
             --T_bind ${TBIND} \
             --batch_size ${BATCH} \
             --S ${S} \
+            --num_wait ${NUM_WAIT} \
             ${USE_FW} \
             ${USE_LN} \
             ${GPU}

@@ -35,6 +35,8 @@ def make_keyvalue_sequence(
     class_ids: list[int] | None,                # value側のクラス列
     device: str,
     seed: int = 123,
+    num_wait: int = 0,                          # ★ wait回数（追加）
+    wait_vec: np.ndarray | torch.Tensor | None = None,  # ★ waitベクトル（追加）
 ):
     """
     KVTask の Bind 仕様に合わせたシーケンス生成：
@@ -94,6 +96,17 @@ def make_keyvalue_sequence(
         value_vec = mu_value[cid].unsqueeze(0).expand(batch_size, -1)
         z_list.append(value_vec)
         event_list.append(("value", cid))
+
+    # ------------------------------
+    # ★ Query 前に wait を num_wait 回入れる
+    # ------------------------------
+    if num_wait > 0:
+        assert wait_vec is not None, "wait_vec が必要です"
+        wait_b = wait_vec.unsqueeze(0).expand(batch_size, -1)
+
+        for _ in range(num_wait):
+            z_list.append(wait_b)
+            event_list.append(("wait", -1))   
 
     # ------------------------------
     # Query: Bind 内の任意の key を使う
