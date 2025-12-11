@@ -25,7 +25,9 @@ import re
 # --------------------------------------------------
 def load_h_csv(path):
     df = pd.read_csv(path)
-    H = df.select_dtypes(include=[np.number]).values
+    # "h[" で始まる列のみを抽出
+    h_cols = [c for c in df.columns if c.startswith("h[")]
+    H = df[h_cols].values.astype(np.float32)
     return H
 
 

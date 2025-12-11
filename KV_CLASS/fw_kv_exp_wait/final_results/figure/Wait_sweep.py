@@ -152,7 +152,7 @@ def main():
     plt.ylim(0, 1.0)
 
     # === ★ 横軸は 1〜WAIT_MAX の幅で固定 ===
-    plt.xlim(1, WAIT_MAX+1)
+    plt.xlim(-1, WAIT_MAX+1)
 
     # === ★ 表示する tick は “データがある wait のみ” ===
     #     → 例： [2, 4, 6, 8, 10, 12, 15, 18]
