@@ -33,8 +33,8 @@ CLIP=${CLIP:-0.7}
 # ========== Bind / Wait 設定 ==========
 ############################################
 T_BIND=${T_BIND:-12}
-DELTA_WAIT=${DELTA_WAIT:-0}
-DUPLICATE=${DUPLICATE:-4}
+DELTA_WAIT=${DELTA_WAIT:-2}
+DUPLICATE=${DUPLICATE:-3}
 
 ############################################
 # ========== FWパラメータ ==========
@@ -46,8 +46,8 @@ ETA=${ETA:-0.30}
 # ========== Sweep 設定 ==========
 ############################################
 S_LIST=${S_LIST:-"1"}              # S-loop sweep
-NOISE_LIST=${NOISE_LIST:-"0.4"}  # noise sweep
-BETA=${BETA:-0.0}
+NOISE_LIST=${NOISE_LIST:-"1.0 0.8 0.6 0.4 0.2"}
+BETA=${BETA:-1.0}
 SEEDS=${SEEDS:-"0"}
 
 ############################################

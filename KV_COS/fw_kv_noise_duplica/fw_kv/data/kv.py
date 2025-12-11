@@ -203,11 +203,8 @@ class KVDataset(IterableDataset):
         key_q = np.tile(key_ep[target_k], (B, 1))
         noise_q = np.stack([unit_sphere(d, self.rng) for _ in range(B)], axis=0)
 
-        z_q = cfg.bind_noise_std * key_q + (1 - cfg.bind_noise_std) * noise_q
+        z_q = cfg.beta * key_q + (1 - cfg.beta) * noise_q
         z_q /= (np.linalg.norm(z_q, axis=1, keepdims=True) + 1e-8)
-
-        # z_q = cfg.beta * key_q + (1 - cfg.beta) * noise_q
-        # z_q /= (np.linalg.norm(z_q, axis=1, keepdims=True) + 1e-8)
 
         z_list.append(torch.from_numpy(z_q).float().to(device))
 

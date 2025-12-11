@@ -76,18 +76,36 @@ def main():
     ap.add_argument("--duplicate", type=int, default=3)
     ap.add_argument("--beta", type=float, default=1.0)
 
+    # ★ 追加：bind_noise_std（Clean 部分のノイズ率）
+    ap.add_argument("--bind_noise_std", type=float, default=0.0,
+                    help="Bind（Clean）のノイズ混合率 r。KVDataset の bind_noise_std と対応。")
+
+
+    # ★ Wait ステップ数（Δ_wait 用）
+    ap.add_argument(
+        "--num_wait",
+        type=int,
+        default=0,
+        help="Bind の後に挟む Wait ステップの数",
+    )
+
     ap.add_argument("--batch_size", type=int, default=128)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--gpu", action="store_true")
 
-    ap.add_argument("--num_classes", type=int, default=10,
-                help="使用するクラス数。key数は class×3 に自動設定する。")
+    # これはチェックポイントの mu から上書きされる想定
+    ap.add_argument(
+        "--num_classes",
+        type=int,
+        default=10,
+        help="使用するクラス数（チェックポイント上の mu.shape[0] と一致している必要あり）",
+    )
 
     ap.set_defaults(use_ln=True, use_fw=True)
     args = ap.parse_args()
 
     # --------------------------------------------------
-    # device
+    # シード & device
     # --------------------------------------------------
     set_seed(args.seed)
     device = "cuda" if (args.gpu and torch.cuda.is_available()) else "cpu"
@@ -97,7 +115,16 @@ def main():
         torch.set_float32_matmul_precision("medium")
 
     # --------------------------------------------------
-    # load model
+    # Wait ベクトル（Δ_wait 用）
+    #   → 学習時と同じように rng=999 で固定生成
+    # --------------------------------------------------
+    rng_wait = np.random.RandomState(999)
+    wait_vec = rng_wait.randn(args.d_g).astype(np.float32)
+    wait_vec /= np.linalg.norm(wait_vec) + 1e-8
+    print(f"[Info] wait_vec generated (seed=999), norm={np.linalg.norm(wait_vec):.6f}")
+
+    # --------------------------------------------------
+    # load model & checkpoint
     # --------------------------------------------------
     model = build_core_model(args).to(device)
 
@@ -131,33 +158,36 @@ def main():
     head.eval()
 
     # --------------------------------------------------
-    # num_classes と num_keys を固定
+    # μ / key_proto を checkpoint から復元
+    #   （学習時とまったく同じものを使用）
     # --------------------------------------------------
-    num_classes = args.num_classes
-    num_keys = int(2.6 * args.num_classes)
+    if ("mu" not in state) or ("key_proto" not in state):
+        raise ValueError("Checkpoint does not contain 'mu' or 'key_proto'.")
 
+    mu_value = state["mu"]
+    key_proto = state["key_proto"]
+
+    # shape から num_classes / num_keys を決める
+    num_classes = mu_value.shape[0]
+    num_keys = key_proto.shape[0]
+
+    # args.num_classes と違う場合は警告だけ出す
+    if args.num_classes != num_classes:
+        print(
+            f"[WARN] args.num_classes={args.num_classes} "
+            f"but checkpoint mu.shape[0]={num_classes}. "
+            f"Using {num_classes}."
+        )
+        args.num_classes = num_classes
+
+    print(f"[Info] Loaded mu_value from checkpoint: {mu_value.shape}")
+    print(f"[Info] Loaded key_proto from checkpoint: {key_proto.shape}")
     print(f"[Info] num_classes={num_classes}, num_keys={num_keys}")
 
     # --------------------------------------------------
-    # μ（value-class prototypes） → class には依存
-    # --------------------------------------------------
-    rng_mu = np.random.RandomState(123)
-    mu_value = rng_mu.randn(num_classes, args.d_g).astype(np.float32)
-    mu_value /= (np.linalg.norm(mu_value, axis=1, keepdims=True) + 1e-8)
-    print(f"[Info] mu_value shape = {mu_value.shape}")
-
-    # --------------------------------------------------
-    # key prototypes → class とは独立
-    # --------------------------------------------------
-    rng_k = np.random.RandomState(777)
-    key_proto = rng_k.randn(num_keys, args.d_g).astype(np.float32)
-    key_proto /= (np.linalg.norm(key_proto, axis=1, keepdims=True) + 1e-8)
-    print(f"[Info] key_proto shape = {key_proto.shape}")
-
-    # --------------------------------------------------
     # KV sequence（Direction Task）
-    #   → class_ids / key_ids はここでは作らない！
-    #   → make_keyvalue_sequence_direction 側で扱う
+    #   → class_ids / key_ids は seq_gen 側で扱う
+    #   → Wait ステップも seq_gen 内で num_wait / wait_vec を使う
     # --------------------------------------------------
     z_seq, event_list, clean_target = make_keyvalue_sequence_direction(
         d_g=args.d_g,
@@ -167,11 +197,14 @@ def main():
         beta=args.beta,
         device=device,
         seed=args.seed + 200,
-
-        # ★ これだけ渡す（固定ベクトル）
         mu_value=mu_value,
         key_proto=key_proto,
+        bind_noise_std=args.bind_noise_std,       # 必要なら argparse で引っ張ってくる
+        query_noise_std=0.0,
+        num_wait=args.num_wait,   # ★ 追加
+        wait_vec=wait_vec,        # ★ 追加（np.ndarray のまま渡す）
     )
+
 
     T_total = z_seq.size(0)
     print(f"[Info] Sequence generated: T={T_total}, B={args.batch_size}")
@@ -190,28 +223,29 @@ def main():
     )
 
     # --------------------------------------------------
-    # Print Query result
+    # ☆ Query 結果表示
     # --------------------------------------------------
-    print("====================================")
-    print(" QUERY RESULT (Direction)")
-    print("====================================")
-    print(f" cosine : {cosine:.6f}")
-    print("====================================")
+    print("===========================================")
+    print(" QUERY RESULT (from Core)")
+    print("===========================================")
+    for k, v in model.log_query.items():
+        print(f" {k:12s} : {v}")
+    print("===========================================")
 
     # --------------------------------------------------
-    # Save Query CSV
+    # ☆ Query 結果 CSV 保存
     # --------------------------------------------------
     query_csv = args.out_csv.replace("A_kv_", "Query_kv_")
-
     with open(query_csv, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["cosine"])
-        w.writerow([cosine])
+        w.writerow(["true", "pred", "correct", "margin", "cosine"])
+        q = model.log_query
+        w.writerow([q["true"], q["pred"], q["correct"], q["margin"], q["cosine"]])
 
-    print(f"[DONE] Query CSV → {query_csv}")
+    print(f"[DONE] Saved Query CSV → {query_csv}")
 
     # --------------------------------------------------
-    # Save A-dynamics CSV
+    # A-dynamics CSV 保存
     # --------------------------------------------------
     out_dir = os.path.dirname(args.out_csv)
     if out_dir:
@@ -219,78 +253,146 @@ def main():
 
     with open(args.out_csv, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["step", "kind", "cid", "froA", "specA", "h_norm", "Ah_norm"])
-
+        w.writerow(["step", "kind", "class_id", "froA", "specA", "h_norm", "Ah_norm"])
         for t in range(len(model.log_froA)):
             w.writerow([
                 t,
                 model.log_kind[t],
-                model.log_class[t],      # ← ★ これを忘れていた！
+                int(model.log_class[t]),
                 model.log_froA[t],
                 model.log_specA[t],
                 model.log_hnorm[t],
                 model.log_Ahnorm[t],
             ])
 
-    print(f"[DONE] A-dynamics CSV → {args.out_csv}")
-
+    print(f"[DONE] Saved KV A-dynamics → {args.out_csv}")
 
     # --------------------------------------------------
-    # Save A-matrix CSV (optional)
+    # Save A-matrix CSV (FW / tanh のみ)
     # --------------------------------------------------
     A_csv = args.out_csv.replace("A_kv_", "Amat_kv_")
 
-    with open(A_csv, "w", newline="") as f:
-        w = csv.writer(f)
+    # RNN の場合は A が存在しないためスキップ
+    if args.core_type in ["rnn"]:  
+        print("[INFO] core_type=rnn → A-matrix CSV を保存しません")
+    else:
+        with open(A_csv, "w", newline="") as f:
+            w = csv.writer(f)
+            d_h = args.d_h
 
-        d_h = args.d_h
-        header = ["step"] + [f"A[{i},{j}]" for i in range(d_h) for j in range(d_h)]
-        w.writerow(header)
+            header = ["step"] + [f"A[{i},{j}]" for i in range(d_h) for j in range(d_h)]
+            w.writerow(header)
 
-        for t, A_t in enumerate(model.log_A):
-            A_flat = A_t.view(-1).tolist()
-            w.writerow([t] + A_flat)
+            for t, A_t in enumerate(model.log_A):
+                A_flat = A_t.view(-1).tolist()
+                w.writerow([t] + A_flat)
 
-    print(f"[DONE] A-matrix CSV → {A_csv}")
+        print(f"[DONE] A-matrix CSV → {A_csv}")
+
 
     # --------------------------------------------------
-    # Save S-loop CSV
+    # S-loop CSV 保存
     # --------------------------------------------------
     sloop_csv = args.out_csv.replace("A_kv_", "Sloop_kv_")
 
     with open(sloop_csv, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["t", "s", "h_norm", "Ah_norm", "cos_h0", "cos_value"])
-
+        w.writerow(["t", "s", "h_norm", "Ah_norm", "cos_h0"])
         for t, s_list in enumerate(model.log_sloop):
             for d in s_list:
-                cos_value = d["cos_value"] if "cos_value" in d else ""
                 w.writerow([
                     t,
                     d["s"],
                     d["h_norm"],
                     d["Ah_norm"],
                     d["cos_h0"],
-                    cos_value,
                 ])
 
-    print(f"[DONE] S-loop CSV → {sloop_csv}")
+    print(f"[DONE] Saved S-loop CSV → {sloop_csv}")
 
     # --------------------------------------------------
-    # Save CosValue CSV（Query only）
+    # CosValue CSV 保存
     # --------------------------------------------------
     cos_csv = args.out_csv.replace("A_kv_", "CosValue_kv_")
 
     with open(cos_csv, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["t", "s", "cos_value"])
-
         for t, s_list in enumerate(model.log_sloop):
             for d in s_list:
                 if "cos_value" in d:
                     w.writerow([t, d["s"], d["cos_value"]])
 
-    print(f"[DONE] CosValue CSV → {cos_csv}")
+    print(f"[DONE] Saved CosValue CSV → {cos_csv}")
+
+    # --------------------------------------------------
+    # h-full CSV 保存（★修正版）
+    # --------------------------------------------------
+    h_csv = args.out_csv.replace("A_kv_", "H_kv_")
+
+    with open(h_csv, "w", newline="") as f:
+        w = csv.writer(f)
+
+        # header を変更：step, kind, class_id, h[0], ...
+        header = ["step", "kind", "class_id"] + [f"h[{i}]" for i in range(args.d_h)]
+        w.writerow(header)
+
+        for t, h_t in enumerate(model.log_h_full):
+            # h_t : (B, d_h)
+            h_mean = h_t.mean(dim=0).tolist()
+
+            kind = model.log_kind[t]          # "key" / "value" / "query"
+            cid  = int(model.log_class[t])    # クラスID (query の場合は bind_idx)
+
+            w.writerow([t, kind, cid] + h_mean)
+
+    print(f"[DONE] Saved h-full CSV → {h_csv}")
+
+    # --------------------------------------------------
+    # S-loop（base + h_s ベクトル）生データ保存
+    # --------------------------------------------------
+    sloop_vec_csv = args.out_csv.replace("A_kv_", "SloopVec_kv_")
+
+    # log_h_sloop / log_base の両方が存在するか確認
+    if hasattr(model, "log_base") and hasattr(model, "log_h_sloop"):
+
+        with open(sloop_vec_csv, "w", newline="") as f:
+            w = csv.writer(f)
+
+            # ---- header ----
+            header = ["t", "s", "vec_type", "kind", "class_id"]
+            header += [f"h[{i}]" for i in range(args.d_h)]
+            w.writerow(header)
+
+            T = len(model.log_base)
+
+            for t in range(T):
+
+                # kind, class_id 判定
+                kind = model.log_kind[t] if t < len(model.log_kind) else "-"
+                cid  = int(model.log_class[t]) if t < len(model.log_class) else -1
+
+                # ---------------------------
+                # (1) base（s = -1）
+                # ---------------------------
+                h_base = model.log_base[t]     # shape: (B, d_h)
+                h_base_mean = h_base.mean(dim=0).tolist()
+
+                w.writerow([t, -1, "base", kind, cid] + h_base_mean)
+
+                # ---------------------------
+                # (2) S-loop の h_s
+                # ---------------------------
+                h_s_list = model.log_h_sloop[t] if t < len(model.log_h_sloop) else []
+
+                for s, h_s in enumerate(h_s_list):
+                    h_s_mean = h_s.mean(dim=0).tolist()
+                    w.writerow([t, s, "hs", kind, cid] + h_s_mean)
+
+        print(f"[DONE] Saved S-loop vector CSV → {sloop_vec_csv}")
+
+    else:
+        print("[INFO] S-loop vector CSV は log_base / log_h_sloop が無いためスキップしました。")
 
 if __name__ == "__main__":
     main()

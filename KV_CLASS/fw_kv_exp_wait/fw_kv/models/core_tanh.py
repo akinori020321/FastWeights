@@ -106,17 +106,28 @@ class CoreRNNFW(nn.Module):
             h = torch.relu(self.ln_h(h_base))
 
             # ----------------------------------------------------------
-            # ★ Query (t == T_total - 1) → Ba-style
+            # ★ Query (t == T_total - 1) → Ba-style（S_loop=1に固定）
             # ----------------------------------------------------------
             if t == T_total - 1:
-                if self.use_A and S_loop > 0:
-                    for _ in range(S_loop):
-                        Ah = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1)
-                        # Ba-style: h_base + β·Ah を LN → ReLU
-                        # h = torch.relu(self.ln_h(h_base + self.beta * Ah))
-                        h = torch.relu(self.ln_h(h_base + Ah))
+                if self.use_A:
+                    # 強制的に 1 回だけ Ah を加算
+                    Ah = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1)
+                    h = torch.relu(self.ln_h(h_base + Ah))
                 # Query では Hebbian 更新しない
                 continue
+
+            # # ----------------------------------------------------------
+            # # ★ Query (t == T_total - 1) → Ba-style
+            # # ----------------------------------------------------------
+            # if t == T_total - 1:
+            #     if self.use_A and S_loop > 0:
+            #         for _ in range(S_loop):
+            #             Ah = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1)
+            #             # Ba-style: h_base + β·Ah を LN → ReLU
+            #             # h = torch.relu(self.ln_h(h_base + self.beta * Ah))
+            #             h = torch.relu(self.ln_h(h_base + Ah))
+            #     # Query では Hebbian 更新しない
+            #     continue
 
             # ----------------------------------------------------------
             # Self-consistent S-loop（Bind / Wait 用）

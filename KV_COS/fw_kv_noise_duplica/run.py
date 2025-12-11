@@ -249,17 +249,27 @@ def main():
     import os
     from datetime import datetime
 
+    # 親ディレクトリ
     BASE_DIR = "checkpoints"
     os.makedirs(BASE_DIR, exist_ok=True)
 
+    # タイムスタンプ生成（例：20251123_121530）
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # タイムスタンプ付きの新しい保存先ディレクトリ
     SAVE_DIR = os.path.join(BASE_DIR, timestamp)
     os.makedirs(SAVE_DIR, exist_ok=True)
 
+    # lambda を小数3桁にしてファイル名に含める
     lam_str = f"{args.lambda_decay:.3f}".replace(".", "")
+
+    # use_fw（0/1）
     fw_flag = int(args.use_fw)
+
+    # eta を小数3桁で文字列化（例：0.30 → "030"）
     eta_str = f"{args.eta:.3f}".replace(".", "")
 
+    # 保存ファイル名
     ckpt_path = os.path.join(
         SAVE_DIR,
         f"kv_{args.core_type}_S{args.S}_fw{fw_flag}_eta{eta_str}_lam{lam_str}_seed{args.seed}.pt"
@@ -271,8 +281,8 @@ def main():
             "core_type": args.core_type,
             "model_state": model.state_dict(),
             "head_state": head.state_dict(),
-            "mu": mu_value,        # ← 修正
-            "key_proto": key_proto # ← 修正
+            "mu": mu_value,
+            "key_proto": key_proto,
         },
         ckpt_path
     )
@@ -281,3 +291,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    

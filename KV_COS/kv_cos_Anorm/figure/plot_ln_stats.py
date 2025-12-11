@@ -3,13 +3,17 @@
 """
 plot_ln_stats.py
 ----------------------------------------
-checkpoint (.pt) から LayerNorm (ln_h) の統計量を集計し，
-CSV とグラフにまとめる。
+figure/ 以下に置いて使う想定。
+1つ上の階層にある checkpoints/*.pt から LayerNorm (ln_h) の統計量を集計し，
+<root>/results_LN_stats に CSV とグラフを出力する。
 
 使い方:
+  cd figure
+  python plot_ln_stats.py
+    または
   python plot_ln_stats.py \
-    --ckpt_pattern "checkpoints/kv_*_S*_fw*_eta*_lam*_seed*.pt" \
-    --out_dir results_LN_stats
+    --ckpt_pattern "../checkpoints/kv_*_S*_fw*_eta*_lam*_seed*.pt" \
+    --out_dir "../results_LN_stats"
 """
 
 from __future__ import annotations
@@ -98,17 +102,27 @@ def parse_name(basename: str):
 
 
 def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(script_dir)  # 一つ上の階層
+
+    # ここを変更
+    plots_dir = os.path.join(root_dir, "figure/plots")
+    default_ckpt_pattern = os.path.join(
+        root_dir, "checkpoints", "kv_*_S*_fw*_eta*_lam*_seed*.pt"
+    )
+    default_out_dir = os.path.join(plots_dir, "results_LN_stats")
+
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--ckpt_pattern",
         type=str,
-        default="checkpoints/kv_*_S*_fw*_eta*_lam*_seed*.pt",
+        default=default_ckpt_pattern,
         help="読み込む checkpoint の glob パターン",
     )
     ap.add_argument(
         "--out_dir",
         type=str,
-        default="results_LN_stats",
+        default=default_out_dir,
         help="CSV / 図 の出力ディレクトリ",
     )
     args = ap.parse_args()
