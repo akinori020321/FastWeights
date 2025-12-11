@@ -5,8 +5,9 @@ S-loop ratio over time (SC-FW vs Ba-FW)
 ---------------------------------------
 - ../results_A_kv/ 以下の SloopVec_kv_*.csv と Amat_kv_*.csv を読む
 - 各モデルについて、各時刻 t で
-      ratio(t) = ||A_t h_t^{(final s)}||_2 / ||h_t^{base}||_2
-  を計算（S=1 なら s=1 の値）
+      ratio(t) = ||A_t h_t^{(last input)}||_2 / ||h_t^{base}||_2
+  を計算
+  （S=1 なら、更新に実際に使われた h^{(0)} に対する A_t h^{(0)} を用いる）
 - SC-FW(core=fw) と Ba-FW(core=tanh) を 2 行サブプロットで別々に描画
 
 出力:
@@ -85,7 +86,9 @@ def load_A(csv_path):
 
 
 # --------------------------------------------------
-# 1 モデル分の ratio(t) = ||A_t h_t^{final}|| / ||h_t^base|| を計算
+# 1 モデル分の ratio(t) = ||A_t h_t^{last input}|| / ||h_t^base|| を計算
+#   - base: s = -1 の行
+#   - S-loop: s >= 0 の行から「最後の更新に入った h」を選ぶ
 # --------------------------------------------------
 def compute_ratio_curve(sloop_csv, amat_csv):
     df = pd.read_csv(sloop_csv)
@@ -100,20 +103,37 @@ def compute_ratio_curve(sloop_csv, amat_csv):
         t = int(t)
 
         # base（s = -1）
-        base_vec = g[g["s"] == -1].iloc[0]
+        base_rows = g[g["s"] == -1]
+        if len(base_rows) == 0:
+            # 想定外フォーマットならスキップ
+            continue
+        base_vec = base_rows.iloc[0]
         base_h = base_vec.filter(regex=r"h\[").values.astype(float)
         norm_base = np.linalg.norm(base_h) + 1e-8  # ゼロ除算防止
 
         # A_t
+        if t >= len(A_list):
+            # 安全のため範囲外ならスキップ
+            continue
         A = A_list[t]
 
-        # S-loop の最後の s を選ぶ（s 昇順で最後）
+        # S-loop 部分（s >= 0）だけ取り出して s でソート
         loop_rows = g[g["s"] >= 0].sort_values("s")
-        last_row = loop_rows.iloc[-1]
-        h_last = last_row.filter(regex=r"h\[").values.astype(float)
 
-        Ah_last = A @ h_last
-        ratio = np.linalg.norm(Ah_last) / norm_base
+        if len(loop_rows) == 0:
+            # S=0 など、S-loop なしの場合はスキップ
+            continue
+        elif len(loop_rows) == 1:
+            # 1 個しかなければそれを「更新に使った h」とみなす
+            target_row = loop_rows.iloc[0]
+        else:
+            # 最後の 1 個前を「最後の更新で A に入った h」とみなす
+            target_row = loop_rows.iloc[-2]
+
+        h_target = target_row.filter(regex=r"h\[").values.astype(float)
+
+        Ah = A @ h_target
+        ratio = np.linalg.norm(Ah) / norm_base
 
         t_list.append(t)
         ratio_list.append(ratio)
@@ -180,16 +200,22 @@ def main():
         # 凡例用の core 名を SC-FW / Ba-FW に変換
         if core == "fw":
             core_label = "SC-FW"
-            curves_sc.append((t_arr, ratio_arr,
-                              f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}"))
+            curves_sc.append(
+                (t_arr, ratio_arr,
+                 f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}")
+            )
         elif core == "tanh":
             core_label = "Ba-FW"
-            curves_ba.append((t_arr, ratio_arr,
-                              f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}"))
+            curves_ba.append(
+                (t_arr, ratio_arr,
+                 f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}")
+            )
         else:
             core_label = core.upper()
-            curves_sc.append((t_arr, ratio_arr,
-                              f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}"))
+            curves_sc.append(
+                (t_arr, ratio_arr,
+                 f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}")
+            )
 
     if len(curves_sc) == 0 and len(curves_ba) == 0:
         print("[ERROR] No valid curves to plot.")

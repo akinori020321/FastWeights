@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Ba-FW 各条件の cosine ヒートマップ図（1ファイル1枚）
-------------------------------------------------------
-../results_A_kv/ 以下の H_kv_fw_*.csv を読み込み，
-Ba-FW (各条件) の cosine 類似度ヒートマップを
-それぞれ別々の PNG として出力する。
+Ba-FW / SC-FW 各条件の cosine ヒートマップ図（1ファイル1枚）
+-------------------------------------------------------------
+../results_A_kv/ 以下の H_kv_*.csv を読み込み，
+Ba-FW (core=fw) および SC-FW (core=tanh) の
+cosine 類似度ヒートマップをそれぞれ別々の PNG として出力する。
 
-出力:
-  plots/sloop_all/kv_dyn_cos_bafw_S{S}_eta{eta}_lam{lam}_seed{seed}.png
+出力（例）:
+  plots/sloop_all/kv_dyn_cos_bafw_S1_eta0300_lam0950_seed0.png
+  plots/sloop_all/kv_dyn_cos_scfw_S1_eta0500_lam0950_seed0.png
 """
 
 import os
@@ -30,7 +31,7 @@ from matplotlib.colors import LinearSegmentedColormap
 def load_h_csv(path):
     df = pd.read_csv(path)
 
-    # ★ h[...] だけを特徴ベクトルとして使う
+    # h[...] だけを特徴ベクトルとして使う
     h_cols = [c for c in df.columns if c.startswith("h[")]
     H = df[h_cols].values.astype(float)
 
@@ -67,12 +68,18 @@ def parse_filename(fname):
 
 
 # --------------------------------------------------
-# core 名を変換
+# core 名を変換（タイトル表示用・ファイル名用）
 # --------------------------------------------------
 CORE_NAME = {
     "fw": "Ba-FW",
     "tanh": "SC-FW",
     "rnn": "RNN-LN",
+}
+
+CORE_PREFIX = {
+    "fw": "bafw",
+    "tanh": "scfw",
+    "rnn": "rnnln",
 }
 
 
@@ -98,11 +105,12 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
         if kinds[t] == "value":
             class_to_values[class_ids[t]].append(t)
 
-    # 推奨APIで cmap を取得（DeprecationWarning 回避）
-    color_map = mpl.colormaps["tab20"]
+    # ★ 修正ポイント：tab20 の色リストから色を取る
+    cmap = mpl.colormaps["tab20"]
+    cmap_colors = cmap.colors  # RGBA のリスト
 
     for idx_c, (cid, steps) in enumerate(class_to_values.items()):
-        color = color_map(idx_c)
+        color = cmap_colors[idx_c % len(cmap_colors)]
         for i in steps:
             for j in steps:
                 if i == j:
@@ -120,7 +128,8 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
     if "query" in kinds:
         q_step = kinds.index("query")
         bind_idx = class_ids[q_step]
-        key_step = bind_idx * 2  # Bind 時刻（key）が 2 * class_id という前提
+        # Bind 時刻（key）が 2 * class_id という前提
+        key_step = bind_idx * 2
 
         for (x, y) in [(key_step, q_step), (q_step, key_step)]:
             ax.add_patch(
@@ -134,9 +143,9 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
 
 
 # --------------------------------------------------
-# Ba-FW 各条件の cosine heatmap を 1枚ずつ描画
+# 指定された CSV 群の cosine heatmap を 1枚ずつ描画
 # --------------------------------------------------
-def plot_bafw_each(csv_list, out_dir, out_prefix="kv_dyn_cos_bafw"):
+def plot_each_core(csv_list, out_dir, out_prefix="kv_dyn_cos"):
     # cos 用カラーマップ（元と同じ）
     cmap = LinearSegmentedColormap.from_list(
         "custom_cmap",
@@ -153,6 +162,7 @@ def plot_bafw_each(csv_list, out_dir, out_prefix="kv_dyn_cos_bafw"):
         C = cosine_matrix(H)
         core, S, eta, lam, seed = parse_filename(csv_path)
         core_name = CORE_NAME.get(core, core)
+        core_prefix = CORE_PREFIX.get(core, core)
 
         fig, ax = plt.subplots(1, 1, figsize=(5, 4))
 
@@ -174,7 +184,7 @@ def plot_bafw_each(csv_list, out_dir, out_prefix="kv_dyn_cos_bafw"):
 
         plt.tight_layout()
 
-        fname = f"{out_prefix}_S{S}_eta{eta}_lam{lam}_seed{seed}.png"
+        fname = f"{out_prefix}_{core_prefix}_S{S}_eta{eta}_lam{lam}_seed{seed}.png"
         out_path = os.path.join(out_dir, fname)
         plt.savefig(out_path, dpi=200)
         plt.close()
@@ -189,24 +199,32 @@ def main():
     ap.add_argument("--dir", type=str, default="../results_A_kv",
                     help="H_kv_*.csv が置いてあるディレクトリ")
     ap.add_argument("--out_prefix", type=str,
-                    default="kv_dyn_cos_bafw",
+                    default="kv_dyn_cos",
                     help="出力ファイル名のプレフィックス")
     args = ap.parse_args()
 
     save_dir = "plots/sloop_all"
     os.makedirs(save_dir, exist_ok=True)
 
-    # Ba-FW (core=fw) のみ取得
-    csv_list = sorted(glob.glob(os.path.join(args.dir, "H_kv_fw_*.csv")))
-    if len(csv_list) == 0:
-        print("[ERROR] No H_kv_fw_*.csv found.")
-        return
+    # Ba-FW (core=fw)
+    csv_fw = sorted(glob.glob(os.path.join(args.dir, "H_kv_fw_*.csv")))
+    if len(csv_fw) == 0:
+        print("[WARN] No H_kv_fw_*.csv found.")
+    else:
+        print(f"[INFO] Found {len(csv_fw)} Ba-FW files")
+        for c in csv_fw:
+            print(" -", c)
+        plot_each_core(csv_fw, out_dir=save_dir, out_prefix=args.out_prefix)
 
-    print(f"[INFO] Found {len(csv_list)} Ba-FW files")
-    for c in csv_list:
-        print(" -", c)
-
-    plot_bafw_each(csv_list, out_dir=save_dir, out_prefix=args.out_prefix)
+    # SC-FW (core=tanh)
+    csv_scfw = sorted(glob.glob(os.path.join(args.dir, "H_kv_tanh_*.csv")))
+    if len(csv_scfw) == 0:
+        print("[WARN] No H_kv_tanh_*.csv found.")
+    else:
+        print(f"[INFO] Found {len(csv_scfw)} SC-FW files")
+        for c in csv_scfw:
+            print(" -", c)
+        plot_each_core(csv_scfw, out_dir=save_dir, out_prefix=args.out_prefix)
 
 
 if __name__ == "__main__":
