@@ -54,7 +54,8 @@ DUPLICATE=${DUPLICATE:-3}
 # Sweep
 # ==========================================
 S_LIST=${S_LIST:-"1"}
-NOISE_LIST=${NOISE_LIST:-"1.0 0.8 0.6 0.4 0.2"}
+NOISE_LIST=${NOISE_LIST:-"0.4"}
+# NOISE_LIST=${NOISE_LIST:-"1.0 0.8 0.6 0.4 0.2"}
 BETA=${BETA:-1.0}
 SEEDS=${SEEDS:-"0"}
 
