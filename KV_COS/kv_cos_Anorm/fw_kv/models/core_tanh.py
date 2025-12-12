@@ -181,7 +181,7 @@ class CoreRNNFW(nn.Module):
                     h_s_vecs.append(h_s.detach().cpu().clone())
 
                     # Ba-style: ここでは S_loop に関わらず 1 回だけ (分類版と互換)
-                    for s in range(1):
+                    for s in range(S_loop):
                         Ah = torch.bmm(A, h_s.unsqueeze(-1)).squeeze(-1)
 
                         # value h との cosine（方向復元タスク向け統計）

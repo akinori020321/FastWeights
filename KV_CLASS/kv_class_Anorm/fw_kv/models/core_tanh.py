@@ -179,7 +179,7 @@ class CoreRNNFW(nn.Module):
 
                     h_s_vecs.append(h_s.detach().cpu().clone())
 
-                    for s in range(1):
+                    for s in range(S_loop):
 
                         Ah = torch.bmm(A, h_s.unsqueeze(-1)).squeeze(-1)
 
