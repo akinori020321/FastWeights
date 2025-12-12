@@ -1,2 +1,0 @@
-epoch,seed,use_fw,use_ln,S,lambda,eta,T_bind,delta_wait,d_g,d_h,beta,train_loss,train_acc,valid_loss,valid_acc,valid_acc_se,valid_acc_lo,valid_acc_hi,specA,froA,addAh_norm,logit_margin,alpha_dyn_train,alpha_dyn_valid
-1,0,1,1,1,0.95,0.3,2,2,100,50,1.0,2.1913512266635893,0.147790625,0.8729093302488327,0.542421875,0.004779926787636476,0.5330532184962326,0.5517905315037676,88.52956695070267,0.0,0.0,0.0,0.0,0.0

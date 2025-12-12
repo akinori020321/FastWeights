@@ -32,7 +32,7 @@ CLIP=${CLIP:-0.7}
 # タスク設定
 # ==============================
 T_BIND=${T_BIND:-5}
-DELTA_WAIT=${DELTA_WAIT:2}
+DELTA_WAIT=${DELTA_WAIT:-2}
 BETA=${BETA:-1.0}
 
 # ==============================
