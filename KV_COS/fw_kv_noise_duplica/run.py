@@ -233,9 +233,6 @@ def main():
         alpha_tr = tr.get("alpha_dyn", 0.0)
         alpha_va = va.get("alpha_dyn", 0.0)
 
-        print(model.ln_h.weight.mean()) # 平均
-        print(model.ln_h.weight.max())
-
         print(
             f"[Epoch {ep:03d}] "
             f"loss={tr['loss']:.3f} acc={tr['acc']:.3f} "

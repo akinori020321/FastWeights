@@ -18,7 +18,6 @@ def unit_sphere(d: int, rng: np.random.RandomState) -> np.ndarray:
     return v
 
 
-
 def make_keyvalue_sequence_direction(
     d_g: int,
     batch_size: int,
@@ -45,11 +44,12 @@ def make_keyvalue_sequence_direction(
       - Anti は Clean に登場した class も key も一切使用しない組み合わせ
         （ただし現状 num_anti=0 で無効化）
       - Query は Clean で複数回登場した class から選択
-      - outer product + 固定ランダム射影 W (seed=999)
+      - outer product + 固定ランダム射影 W (seed=999) で Bind 入力を作る
 
     さらに:
       - Bind のあとに num_wait ステップだけ wait_vec を挿入（あれば）
       - event_list を返す: "bind" / "bind_noise" / "wait" / "query"
+      - ★ clean_target は「Query で参照される clean パターン」（outer(key, val)→W）
     """
     assert mu_value is not None and key_proto is not None, \
         "mu_value と key_proto を必ず渡してください。"
@@ -98,7 +98,7 @@ def make_keyvalue_sequence_direction(
     # 2. Anti（Clean の class も key も一切使用しない）
     #    KVDataset の現行コードでは num_anti = 0 に固定
     # ------------------------------------------------------
-    num_anti = 0  # ★ KVDataset の実装に合わせる
+    num_anti = 0  # KVDataset の実装に合わせる
 
     anti_classes = [c for c in range(num_classes) if c not in clean_classes]
     anti_keys    = [k for k in range(num_keys)    if k not in clean_keys]
@@ -195,18 +195,18 @@ def make_keyvalue_sequence_direction(
     target_k = int(rng.choice(valid_keys))
 
     # ------------------------------------------------------
-    # 6. clean_target（方向復元の「正解ベクトル」）
+    # 6. clean_target（方向復元の「正解ベクトル」＝ clean パターン）
     # ------------------------------------------------------
     key = key_ep[target_k]
-    val = mu_ep[target_c]
+    val = mu_ep[target_c]  # (d_g,)
 
-    outer = np.outer(key, val).astype(np.float32)
-    flat = outer.reshape(-1)
-    clean_target_np = flat @ W
-    clean_target_np /= (np.linalg.norm(clean_target_np) + 1e-8)
+    outer_q = np.outer(key, val).astype(np.float32)   # (d_g, d_g)
+    flat_q  = outer_q.reshape(-1)                     # (d_g * d_g,)
+    target_clean = flat_q @ W                         # (d_g,)
+    target_clean /= (np.linalg.norm(target_clean) + 1e-8)
 
-    clean_target = np.tile(clean_target_np, (B, 1))    # (B, d)
-    clean_target = torch.from_numpy(clean_target).float().to(torch_device)
+    clean_target_np = np.tile(target_clean, (B, 1))   # (B, d_g)
+    clean_target = torch.from_numpy(clean_target_np).float().to(torch_device)
 
     # ------------------------------------------------------
     # 7. Wait ステップ（あれば）

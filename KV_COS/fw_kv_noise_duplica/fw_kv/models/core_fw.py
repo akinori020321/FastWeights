@@ -14,6 +14,7 @@ Fast Weights Core (Step-wise Fast Weights)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from fw_kv.models.core_config import CoreCfg
 

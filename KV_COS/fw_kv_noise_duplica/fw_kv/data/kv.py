@@ -6,6 +6,7 @@
  - Anti は Clean に登場した class も key も一切使用しない
    （完全に異なる class×key を一度だけ使用）
  - Query は Clean で複数回登場した class から選択
+ - Bind のあとに num_wait 回だけ wait_vec を挿入（あれば）
 ========================================================
 """
 
@@ -36,7 +37,8 @@ class KVConfig:
     device: str = "cpu"
     seed: int = 123
     beta: float = 1.0
-    bind_noise_std: float = 0.0    # 追加
+    bind_noise_std: float = 0.0    # Bind に混ぜるノイズ率
+    num_wait: int = 0              # Wait ステップ数
 
 
 # -----------------------------------------------------
@@ -56,8 +58,8 @@ class KVDataset(IterableDataset):
         self.cfg = cfg
         self.mu_value = mu_value
         self.key_proto = key_proto
-        self.wait_vec = wait_vec
-        self.delta_wait = delta_wait
+        self.wait_vec = wait_vec        # Wait 用ベクトルを保持
+        self.delta_wait = delta_wait    # num_wait に足し込むオフセット
         self.rng = np.random.RandomState(cfg.seed)
 
         self.num_classes = mu_value.shape[0]
@@ -80,8 +82,8 @@ class KVDataset(IterableDataset):
         num_items = cfg.T_bind // cfg.duplicate
 
         # ============================================================
-        # ★ このバッチ専用の key / value テーブルをシャッフル
-        #    （バッチ内では固定，バッチが変わると perm も変わる）
+        # このバッチ専用の key / value テーブルをシャッフル
+        #  （バッチ内では固定，バッチが変わると perm も変わる）
         # ============================================================
         perm_c = self.rng.permutation(self.num_classes)
         perm_k = self.rng.permutation(self.num_keys)
@@ -101,35 +103,35 @@ class KVDataset(IterableDataset):
         clean_classes = set(class_ids_clean.tolist())
         clean_keys    = set(key_ids_clean.tolist())
 
-        # Clean ペア（旧仕様残し）
+        # Clean ペア（旧仕様残し・未使用）
         clean_pairs = set(zip(class_ids_clean, key_ids_clean))
 
         # ============================================================
         # 2. Anti（Clean の class も key も一切使用しない）
         # ============================================================
-        num_anti = 0  # cfg.T_bind
+        num_anti = 0  # 現仕様では 0 に固定
 
-        # Clean に出ていない class / key を抽出
         anti_classes = [c for c in range(self.num_classes)
                         if c not in clean_classes]
-
         anti_keys = [k for k in range(self.num_keys)
                      if k not in clean_keys]
 
-        if len(anti_classes) == 0 or len(anti_keys) == 0:
-            raise ValueError("Anti に使える class または key がありません。")
+        if num_anti > 0:
+            if len(anti_classes) == 0 or len(anti_keys) == 0:
+                raise ValueError("Anti に使える class または key がありません。")
 
-        # Clean と完全に分離された Anti 用 (class,key)
-        all_pairs_anti = [(c, k) for c in anti_classes for k in anti_keys]
+            all_pairs_anti = [(c, k) for c in anti_classes for k in anti_keys]
+            if num_anti > len(all_pairs_anti):
+                raise ValueError("num_anti が候補より大きい（class/key 丸ごと除外のため）。")
 
-        if num_anti > len(all_pairs_anti):
-            raise ValueError("num_anti が候補より大きい（class/key 丸ごと除外のため）。")
+            pairs_idx = self.rng.choice(len(all_pairs_anti), size=num_anti, replace=False)
+            pairs = [all_pairs_anti[i] for i in pairs_idx]
 
-        pairs_idx = self.rng.choice(len(all_pairs_anti), size=num_anti, replace=False)
-        pairs = [all_pairs_anti[i] for i in pairs_idx]
-
-        class_ids_anti = np.array([p[0] for p in pairs], dtype=int)
-        key_ids_anti   = np.array([p[1] for p in pairs], dtype=int)
+            class_ids_anti = np.array([p[0] for p in pairs], dtype=int)
+            key_ids_anti   = np.array([p[1] for p in pairs], dtype=int)
+        else:
+            class_ids_anti = np.array([], dtype=int)
+            key_ids_anti   = np.array([], dtype=int)
 
         # ============================================================
         # 3. Merge → Shuffle
@@ -146,10 +148,9 @@ class KVDataset(IterableDataset):
         # ============================================================
         # 4. Bind sequence（Clean と Anti が完全に disjoint）
         # ============================================================
-
         for cls_t, key_t in zip(class_ids, key_ids):
 
-            # ★ このバッチ専用にシャッフルされた key_ep / mu_ep を使用
+            # このバッチ専用にシャッフルされた key_ep / mu_ep を使用
             key = key_ep[key_t]
             val = mu_ep[cls_t]
 
@@ -159,13 +160,13 @@ class KVDataset(IterableDataset):
             clean_vec /= (np.linalg.norm(clean_vec) + 1e-8)
 
             if (cls_t in clean_classes) and (key_t in clean_keys):
-                # Clean
+                # ----- Clean -----
                 eps = unit_sphere(d, self.rng)
                 r = cfg.bind_noise_std
                 mixed = r * clean_vec + (1 - r) * eps
                 mixed /= (np.linalg.norm(mixed) + 1e-8)
             else:
-                # Clean
+                # ----- Anti（今は num_anti=0 なので実質使われない） -----
                 eps = unit_sphere(d, self.rng)
                 r = 0.0
                 mixed = r * clean_vec + (1 - r) * eps
@@ -177,10 +178,33 @@ class KVDataset(IterableDataset):
             z_list.append(torch.from_numpy(mixed_batch).float().to(device))
 
         # ============================================================
-        # 5. Query（Clean の複数回登場 class から選択）
+        # 5. Wait ステップ（Bind のあと / Query の前）
+        # ============================================================
+        num_wait_total = max(0, getattr(cfg, "num_wait", 0) + self.delta_wait)
+
+        if num_wait_total > 0:
+            if self.wait_vec is None:
+                raise ValueError("num_wait > 0 なのに wait_vec が None です。")
+
+            w = self.wait_vec.astype(np.float32)
+            w /= (np.linalg.norm(w) + 1e-8)
+
+            wait_batch = np.stack([w for _ in range(B)], axis=0)
+            wait_batch /= (np.linalg.norm(wait_batch, axis=1, keepdims=True) + 1e-8)
+
+            wait_tensor = torch.from_numpy(wait_batch).float().to(device)
+
+            for _ in range(num_wait_total):
+                z_list.append(wait_tensor)
+
+        # ============================================================
+        # 6. Query（Clean の複数回登場 class から選択）
         # ============================================================
         unique, counts = np.unique(class_ids_clean, return_counts=True)
         multi_classes = [c for c, cnt in zip(unique, counts) if cnt > 1]
+
+        if len(multi_classes) == 0:
+            raise ValueError("複数回登場するクラスがありません（duplicate の設定を確認）。")
 
         target_c = self.rng.choice(multi_classes)
 
@@ -189,18 +213,20 @@ class KVDataset(IterableDataset):
 
         # ★ Query でも同じ mu_ep / key_ep を使用（バッチ内で一貫）
         key = key_ep[target_k]
-        val = mu_ep[target_c]
+        val = mu_ep[target_c]          # (d_g,)
 
-        outer = np.outer(key, val).astype(np.float32)
-        clean_target = outer.reshape(-1) @ self.W
-        clean_target /= (np.linalg.norm(clean_target) + 1e-8)
+        # ---- 正解ベクトル：clean パターン（outer(key, val) → W）----
+        outer_q = np.outer(key, val).astype(np.float32)   # (d_g, d_g)
+        flat_q  = outer_q.reshape(-1)                     # (d_g * d_g,)
+        target_clean = flat_q @ self.W                    # (d_g,)
+        target_clean /= (np.linalg.norm(target_clean) + 1e-8)
 
         clean_vec = torch.from_numpy(
-            np.tile(clean_target, (B, 1))
+            np.tile(target_clean, (B, 1))
         ).float().to(device)
 
-        # ----- Query vector -----
-        key_q = np.tile(key_ep[target_k], (B, 1))
+        # ----- Query vector（入力側）は key + noise -----
+        key_q = np.tile(key, (B, 1))   # (B, d_g)
         noise_q = np.stack([unit_sphere(d, self.rng) for _ in range(B)], axis=0)
 
         z_q = cfg.beta * key_q + (1 - cfg.beta) * noise_q

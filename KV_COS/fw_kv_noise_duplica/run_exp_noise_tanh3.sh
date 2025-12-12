@@ -45,10 +45,10 @@ ETA=${ETA:-0.30}
 ############################################
 # ========== Sweep 設定 ==========
 ############################################
-S_LIST=${S_LIST:-"1"}              # S-loop sweep
+S_LIST=${S_LIST:-"3"}              # S-loop sweep
 NOISE_LIST=${NOISE_LIST:-"0.4"}
 # NOISE_LIST=${NOISE_LIST:-"1.0 0.8 0.6 0.4 0.2"}
-BETA=${BETA:-1.0}
+BETA=${BETA:-0.4}
 SEEDS=${SEEDS:-"0"}
 
 ############################################
@@ -60,7 +60,7 @@ PYTHON_BIN=${PYTHON_BIN:-python3}
 ############################################
 # ========== 出力ディレクトリ ==========
 ############################################
-OUT_DIR=${OUT_DIR:-"results_recon_tanh"}
+OUT_DIR=${OUT_DIR:-"results_recon_tanh3"}
 
 if [[ -d "${OUT_DIR}" ]]; then
   BACKUP="${OUT_DIR}_backup_$(date +"%Y%m%d_%H%M%S")"

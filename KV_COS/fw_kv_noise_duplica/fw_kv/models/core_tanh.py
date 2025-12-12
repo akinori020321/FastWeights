@@ -119,7 +119,7 @@ class CoreRNNFW(nn.Module):
             # ----------------------------------------------------------
             if t == T_total - 1:
                 if self.use_A and S_loop > 0:
-                    for _ in range(1):
+                    for _ in range(S_loop):
                         Ah = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1)
                         # Ba-style: h_base + β·Ah を LN → ReLU
                         # h = torch.relu(self.ln_h(h_base + self.beta * Ah))
