@@ -84,12 +84,15 @@ CORE_PREFIX = {
 
 
 # --------------------------------------------------
-# 共通のヒートマップ装飾（対角青・value 枠・query 対応枠）
+# 共通のヒートマップ装飾
+#  - 対角青
+#  - 同じ class_id（bind / query）のペアを同じ色で枠囲み
+#  - Query と同じクラスの Bind との対応セルをマゼンタで強調
 # --------------------------------------------------
 def draw_single_heatmap(ax, M, kinds, class_ids):
     T = len(kinds)
 
-    # ---- ① 対角を青 ----
+    # ---- ① 対角を青塗り ----
     for t in range(T):
         ax.add_patch(
             patches.Rectangle(
@@ -98,22 +101,30 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
             )
         )
 
-    # ---- ② 同クラス value の枠線強調 ----
+    # ---- ② 同じ class_id を持つ bind / query の枠線強調 ----
     from collections import defaultdict
-    class_to_values = defaultdict(list)
-    for t in range(T):
-        if kinds[t] == "value":
-            class_to_values[class_ids[t]].append(t)
+    class_to_steps = defaultdict(list)
 
-    # ★ 修正ポイント：tab20 の色リストから色を取る
+    for t in range(T):
+        cid = class_ids[t]
+        if cid < 0:
+            # bind_noise / wait などは無視
+            continue
+        k = kinds[t]
+        if k not in ("bind", "query"):
+            continue
+        class_to_steps[cid].append(t)
+
+    # tab20 の色リストからクラスごとに色を取る
     cmap = mpl.colormaps["tab20"]
     cmap_colors = cmap.colors  # RGBA のリスト
 
-    for idx_c, (cid, steps) in enumerate(class_to_values.items()):
+    for idx_c, (cid, steps) in enumerate(sorted(class_to_steps.items())):
         color = cmap_colors[idx_c % len(cmap_colors)]
         for i in steps:
             for j in steps:
                 if i == j:
+                    # 対角はすでに青塗りしているのでスキップ
                     continue
                 ax.add_patch(
                     patches.Rectangle(
@@ -124,22 +135,28 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
                     )
                 )
 
-    # ---- ③ query と bind_key 強調 ----
+    # ---- ③ query と「同じクラスの bind」をマゼンタでさらに強調 ----
     if "query" in kinds:
         q_step = kinds.index("query")
-        bind_idx = class_ids[q_step]
-        # Bind 時刻（key）が 2 * class_id という前提
-        key_step = bind_idx * 2
+        q_cid = class_ids[q_step]
 
-        for (x, y) in [(key_step, q_step), (q_step, key_step)]:
-            ax.add_patch(
-                patches.Rectangle(
-                    (x, y), 1, 1,
-                    fill=False,
-                    edgecolor="magenta",
-                    linewidth=2.5
-                )
-            )
+        if q_cid >= 0:
+            # 同じ class_id を持つ bind の時刻をすべて取得
+            key_steps = [
+                t for t in range(T)
+                if kinds[t] == "bind" and class_ids[t] == q_cid
+            ]
+
+            for key_step in key_steps:
+                for (x, y) in [(key_step, q_step), (q_step, key_step)]:
+                    ax.add_patch(
+                        patches.Rectangle(
+                            (x, y), 1, 1,
+                            fill=False,
+                            edgecolor="magenta",
+                            linewidth=2.5
+                        )
+                    )
 
 
 # --------------------------------------------------

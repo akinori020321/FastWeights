@@ -20,7 +20,7 @@ USE_LN="--use_ln"
 # ★★ 追加：クラス数 / Wait ステップ数 / Bind ノイズ（環境変数で上書き可） ★★
 NUM_CLASSES=${NUM_CLASSES:-8}
 NUM_WAIT=${NUM_WAIT:-2}          # run_A_kv.py の --num_wait に渡す
-BIND_NOISE_STD=${BIND_NOISE_STD:-1.0}  # run_A_kv.py の --bind_noise_std に渡す
+BIND_NOISE_STD=${BIND_NOISE_STD:-0.4}  # run_A_kv.py の --bind_noise_std に渡す
 
 # Sweep する core タイプ
 CORE_LIST="fw tanh"
