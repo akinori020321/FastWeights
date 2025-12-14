@@ -5,9 +5,14 @@ h_PCA_timeseries_color.py
 ----------------------------------------
 各 H_kv_*.csv について
  - h_t を PCA 2 次元へ射影（実験ごとに fit）
- - t=0→T を色グラデーション（青→赤）でプロット
- - 右側に全体共通のカラーバーを配置
- - subplot に並べて表示
+ - t=0→T を色グラデーションでプロット
+ - ★ class_id ごとに色付きの輪っか（※出現順で色割当）
+      ただし predicate を統一：
+        kind in ("bind","value","query") かつ class_id>=0 を t順に走査して初出順に色
+ - ★ query のみ「星マーカー」
+ - ★ 各 subplot 右上に class 色バー（凡例）
+ - ★ wait（class_id < 0）には輪っかを付けない
+ - 右側に全体共通のカラーバー
 """
 
 import os
@@ -18,6 +23,18 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import re
+import matplotlib.patches as mpatches
+
+
+# --------------------------------------------------
+# ★ 輪っか／クエリ星 用の明るい固定色（出現順で割当）
+# --------------------------------------------------
+OUTLINE_COLORS = [
+    "#ff4fa3",  # vivid pink
+    "#ff9f1a",  # vivid orange
+    "#4dd9ff",  # bright cyan-blue
+    "#6dff6d",  # bright green
+]
 
 
 # --------------------------------------------------
@@ -25,10 +42,22 @@ import re
 # --------------------------------------------------
 def load_h_csv(path):
     df = pd.read_csv(path)
-    # "h[" で始まる列のみを抽出
+
     h_cols = [c for c in df.columns if c.startswith("h[")]
     H = df[h_cols].values.astype(np.float32)
-    return H
+
+    class_ids = (
+        df["class_id"].values.astype(int)
+        if "class_id" in df.columns
+        else np.full(len(H), -1, dtype=int)
+    )
+    kinds = (
+        df["kind"].values
+        if "kind" in df.columns
+        else np.full(len(H), "other")
+    )
+
+    return H, class_ids, kinds
 
 
 # --------------------------------------------------
@@ -36,101 +65,195 @@ def load_h_csv(path):
 # --------------------------------------------------
 def parse_title(fname):
     base = os.path.basename(fname)
-    pattern = r"H_kv_(fw|tanh)_S([0-9]+)_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+    pattern = (
+        r"H_kv_(fw|tanh|rnn)_S(\d+)"
+        r"(?:_noise(\d+))?"
+        r"_eta(\d+)_lam(\d+)_seed(\d+)"
+    )
     m = re.match(pattern, base)
-
     if m is None:
         return base
 
-    return f"{m.group(1)}_S{m.group(2)}_eta{m.group(3)}_lam{m.group(4)}_seed{m.group(5)}"
+    core, S, noise, eta, lam, seed = m.groups()
+    noise_str = f"_noise{noise}" if noise else ""
+    return f"{core}_S{S}{noise_str}_eta{eta}_lam{lam}_seed{seed}"
 
 
 # --------------------------------------------------
-# PCA プロット（実験ごとに subplot）
+# ★ class_id の「出現順」で色を割り当てる（predicate 統一版）
+#   predicate:
+#     kind in ("bind","value","query") かつ class_id>=0
+#   戻り値:
+#     (cid2color: dict[int,str], ordered_cids: list[int])
 # --------------------------------------------------
-def plot_pca_subplots(csv_list, out_png="h_pca_timeseries_color.png"):
+def build_class_color_map(kinds, class_ids):
+    cid2color = {}
+    ordered_cids = []
+    color_idx = 0
+
+    for k, cid in zip(kinds, class_ids):
+        cid = int(cid)
+        if cid < 0:
+            continue
+        if k not in ("bind", "value", "query"):
+            continue
+        if cid in cid2color:
+            continue
+
+        cid2color[cid] = OUTLINE_COLORS[color_idx % len(OUTLINE_COLORS)]
+        ordered_cids.append(cid)
+        color_idx += 1
+
+    return cid2color, ordered_cids
+
+
+# --------------------------------------------------
+# PCA プロット
+# --------------------------------------------------
+def plot_pca_subplots(csv_list, out_png):
     N = len(csv_list)
     ncols = 2
     nrows = int(np.ceil(N / ncols))
 
-    # -----------------------------------------
-    # 図全体を包む Figure + GridSpec
-    # -----------------------------------------
-    fig = plt.figure(figsize=(8*ncols, 6*nrows))
+    fig = plt.figure(figsize=(8 * ncols, 6 * nrows))
     gs = fig.add_gridspec(nrows, ncols)
 
-    axes = []
-    for r in range(nrows):
-        row_axes = []
-        for c in range(ncols):
-            ax = fig.add_subplot(gs[r, c])
-            row_axes.append(ax)
-        axes.append(row_axes)
+    axes = [[fig.add_subplot(gs[r, c]) for c in range(ncols)]
+            for r in range(nrows)]
 
     cmap = plt.cm.plasma
+    Tmax = max(pd.read_csv(p).shape[0] for p in csv_list)
 
-    # -----------------------------------------
-    # 各 CSV を subplot に描画
-    # -----------------------------------------
     for idx, csv_path in enumerate(csv_list):
-        H = load_h_csv(csv_path)
+        H, class_ids, kinds = load_h_csv(csv_path)
         T = H.shape[0]
 
-        # PCA fit
+        # ★ predicate 統一で class_id→色 を決める（このCSV内ローカル）
+        cid2color, ordered_cids = build_class_color_map(kinds, class_ids)
+
         pca = PCA(n_components=2)
         H_pca = pca.fit_transform(H)
 
         r, c = divmod(idx, ncols)
         ax = axes[r][c]
 
-        # 色（t=0→T）
-        colors = cmap(np.linspace(0, 1, T))
+        colors_time = cmap(np.linspace(0, 1, T))
 
-        ax.scatter(H_pca[:, 0], H_pca[:, 1], c=colors, s=40)
+        # ---- マスク類 ----
+        kinds_arr = np.asarray(kinds)
+        is_query = (kinds_arr == "query")
+        not_query = ~is_query
+        has_class = (class_ids >= 0)
+        is_bvq = np.isin(kinds_arr, ["bind", "value", "query"])  # ★ predicate統一
+
+        # ========================
+        # 非 query：点（全て）
+        # ========================
+        ax.scatter(
+            H_pca[not_query, 0], H_pca[not_query, 1],
+            c=colors_time[not_query],
+            s=40, linewidths=0, zorder=2
+        )
+
+        # 非 query：輪っか（predicate 統一: bvq & class_id>=0 のみ）
+        idx_ring = (not_query & has_class & is_bvq)
+        ax.scatter(
+            H_pca[idx_ring, 0],
+            H_pca[idx_ring, 1],
+            s=130,
+            facecolors="none",
+            edgecolors=[cid2color[int(cid)] for cid in class_ids[idx_ring]],
+            linewidths=2.2,
+            zorder=3
+        )
+
+        # ========================
+        # query：★ 星（全て）
+        # ========================
+        ax.scatter(
+            H_pca[is_query, 0], H_pca[is_query, 1],
+            c=colors_time[is_query],
+            marker="*",
+            s=220,
+            linewidths=0,
+            zorder=4
+        )
+
+        # query：★ 星の輪っか（predicate 統一: bvq & class_id>=0 のみ）
+        idx_qring = (is_query & has_class & is_bvq)
+        ax.scatter(
+            H_pca[idx_qring, 0],
+            H_pca[idx_qring, 1],
+            facecolors="none",
+            edgecolors=[cid2color[int(cid)] for cid in class_ids[idx_qring]],
+            marker="*",
+            s=420,
+            linewidths=2.5,
+            zorder=5
+        )
 
         ax.set_title(parse_title(csv_path), fontsize=12)
         ax.set_xlabel("PC1")
         ax.set_ylabel("PC2")
-        ax.grid()
+        ax.grid(True)
 
-    # 余った subplot を非表示
-    for i in range(N, nrows*ncols):
-        r, c = divmod(i, ncols)
-        axes[r][c].axis("off")
+        # ------------------------
+        # 凡例（右上）※出現順のまま並べる
+        # ------------------------
+        handles = [
+            mpatches.Patch(
+                facecolor="none",
+                edgecolor=cid2color[cid],
+                linewidth=2.5,
+                label=f"class {cid}"
+            )
+            for cid in ordered_cids
+        ]
+        handles.append(
+            plt.Line2D(
+                [0], [0],
+                marker="*",
+                color="k",
+                linestyle="None",
+                markersize=12,
+                label="query"
+            )
+        )
 
-    # --------------------------------------------------------
-    # flatten Axes for colorbar
-    # --------------------------------------------------------
-    flat_axes = [ax for row in axes for ax in row]
+        ax.legend(
+            handles=handles,
+            loc="upper right",
+            fontsize=9,
+            framealpha=0.85
+        )
 
-    # --------------------------------------------------------
-    # カラーバー（右側縦）
-    # --------------------------------------------------------
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=T-1))
+    # 余り subplot を消す
+    for i in range(N, nrows * ncols):
+        axes[i // ncols][i % ncols].axis("off")
+
+    # ------------------------
+    # 共通カラーバー（時間）
+    # ------------------------
+    sm = plt.cm.ScalarMappable(
+        cmap=cmap,
+        norm=plt.Normalize(0, Tmax - 1)
+    )
     sm.set_array([])
-
-    # ★ 右側の余白を確保（tight_layout を使わない）
     fig.subplots_adjust(right=0.88)
-
     cbar = fig.colorbar(
         sm,
-        ax=flat_axes,
-        orientation="vertical",
+        ax=[ax for row in axes for ax in row],
         fraction=0.025,
         pad=0.01
     )
-    cbar.set_label("time step (t=0 → t=T)", fontsize=12)
+    cbar.set_label("time step (t=0 → t=T)")
 
-    # 保存
     os.makedirs("plots/h_pca", exist_ok=True)
     out_path = os.path.join("plots/h_pca", out_png)
     plt.savefig(out_path, dpi=200)
     print(f"[SAVED] {out_path}")
 
 
-# --------------------------------------------------
-# main
-# --------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", type=str, default="../results_A_kv")
@@ -140,7 +263,7 @@ def main():
     csv_list = sorted(glob.glob(os.path.join(args.dir, "H_kv_*.csv")))
     print("[INFO] Found", len(csv_list), "files")
 
-    plot_pca_subplots(csv_list, out_png=args.out)
+    plot_pca_subplots(csv_list, args.out)
 
 
 if __name__ == "__main__":

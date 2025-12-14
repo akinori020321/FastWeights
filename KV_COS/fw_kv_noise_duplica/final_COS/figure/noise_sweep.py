@@ -91,9 +91,9 @@ def load_model_stats(model_dir):
 def main():
 
     model_dirs = {
-        "fw":   os.path.join(CSV_ROOT, "noise_fw"),
-        "rnn":  os.path.join(CSV_ROOT, "noise_rnn"),
-        "tanh": os.path.join(CSV_ROOT, "noise_tanh"),
+        "fw":   os.path.join(CSV_ROOT, "results_recon_fw"),
+        "rnn":  os.path.join(CSV_ROOT, "results_recon_rnn"),
+        "tanh": os.path.join(CSV_ROOT, "results_recon_tanh"),
     }
 
     model_data = {}

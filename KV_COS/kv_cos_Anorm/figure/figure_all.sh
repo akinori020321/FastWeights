@@ -29,7 +29,7 @@ for CORE in ${CORE_LIST}; do
     echo "-----------------------------------------------"
 
     # 例: kv_fw_S1_fw1_eta0300_lam0850_seed0.pt
-    mapfile -t CKPT_LIST < <(find "${CKPT_DIR}" -type f -name "kv_${CORE}_S*_fw*_eta*_lam*_seed*.pt" | sort)
+    mapfile -t CKPT_LIST < <(find "${CKPT_DIR}" -type f -name "kv_${CORE}_S*_noise*_eta*_lam*_seed*.pt" | sort)
 
     if [ ${#CKPT_LIST[@]} -eq 0 ]; then
         echo "[WARN] No checkpoints found for CORE=${CORE}"

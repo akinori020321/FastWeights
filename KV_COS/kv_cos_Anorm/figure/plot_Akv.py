@@ -72,22 +72,27 @@ def load_score(csv_path, cos_thresh=0.8):
     return score, cosine
 
 # --------------------------------------------------
-# ファイル名パーサー
+# ファイル名パーサー（noise あり / なし両対応）
 # --------------------------------------------------
 def parse_core_S(filename):
     base = os.path.basename(filename)
 
-    pattern = r"A_kv_(fw|tanh|rnn)_S([0-9]+)_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+    pattern = (
+        r"A_kv_(fw|tanh|rnn)_S([0-9]+)"
+        r"(?:_noise([0-9]+))?"
+        r"_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+    )
     m = re.match(pattern, base)
 
     if m is None:
-        raise ValueError(f"Filename does not match new A_kv_ pattern: {base}")
+        raise ValueError(f"Filename does not match A_kv_ pattern: {base}")
 
     core = m.group(1)
-    S = int(m.group(2))
-    eta = m.group(3)
-    lam = m.group(4)
-    seed = m.group(5)
+    S    = int(m.group(2))
+    # noise = m.group(3)  # 使わないので今回は無視
+    eta  = m.group(4)
+    lam  = m.group(5)
+    seed = m.group(6)
 
     return core, S, eta, lam, seed
 

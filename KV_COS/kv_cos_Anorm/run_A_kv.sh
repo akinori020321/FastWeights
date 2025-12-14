@@ -20,10 +20,10 @@ USE_LN="--use_ln"
 # ★★ 追加：クラス数 / Wait ステップ数 / Bind ノイズ（環境変数で上書き可） ★★
 NUM_CLASSES=${NUM_CLASSES:-8}
 NUM_WAIT=${NUM_WAIT:-2}          # run_A_kv.py の --num_wait に渡す
-BIND_NOISE_STD=${BIND_NOISE_STD:-0.4}  # run_A_kv.py の --bind_noise_std に渡す
+BIND_NOISE_STD=${BIND_NOISE_STD:-0.6}  # run_A_kv.py の --bind_noise_std に渡す
 
 # Sweep する core タイプ
-CORE_LIST="fw tanh"
+CORE_LIST="rnn fw tanh"
 
 # checkpoint ディレクトリ
 CKPT_DIR="checkpoints"
@@ -52,7 +52,7 @@ for CORE in ${CORE_LIST}; do
     echo "==============================================="
 
     # 例: kv_fw_S1_fw1_eta03_lam0950_seed0.pt
-    mapfile -t CKPT_LIST < <(find "${CKPT_DIR}" -type f -name "kv_${CORE}_S*_fw*_eta*_lam*_seed*.pt" | sort)
+    mapfile -t CKPT_LIST < <(find "${CKPT_DIR}" -type f -name "kv_${CORE}_S*_noise*_eta*_lam*_seed*.pt" | sort)
 
     if [ ${#CKPT_LIST[@]} -eq 0 ]; then
         echo "[WARN] No checkpoints found for CORE=${CORE} in ${CKPT_DIR}"

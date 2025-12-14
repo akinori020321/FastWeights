@@ -269,7 +269,7 @@ def main():
     # 保存ファイル名
     ckpt_path = os.path.join(
         SAVE_DIR,
-        f"kv_{args.core_type}_S{args.S}_bnoise{args.bind_noise_std:.3f}_eta{eta_str}_lam{lam_str}_seed{args.seed}.pt"
+        f"kv_{args.core_type}_S{args.S}_noise{args.bind_noise_std:.3f}_eta{eta_str}_lam{lam_str}_seed{args.seed}.pt"
     )
 
 

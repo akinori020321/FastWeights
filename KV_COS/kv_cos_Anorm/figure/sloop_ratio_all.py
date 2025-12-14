@@ -7,7 +7,6 @@ S-loop ratio over time (SC-FW vs Ba-FW)
 - 各モデルについて、各時刻 t で
       ratio(t) = ||A_t h_t^{(last input)}||_2 / ||h_t^{base}||_2
   を計算
-  （S=1 なら、更新に実際に使われた h^{(0)} に対する A_t h^{(0)} を用いる）
 - SC-FW(core=fw) と Ba-FW(core=tanh) を 2 行サブプロットで別々に描画
 
 出力:
@@ -24,12 +23,16 @@ import matplotlib.pyplot as plt
 
 
 # --------------------------------------------------
-# ファイル名パーサ
-#   SloopVec_kv_(fw|tanh)_S<S>_eta<eta>_lam<lam>_seed<seed>.csv
+# SloopVec ファイル名パーサ（rnn 対応）
 # --------------------------------------------------
 def parse_sloop_filename(fname):
     base = os.path.basename(fname)
-    pattern = r"SloopVec_kv_(fw|tanh)_S(\d+)_eta([0-9]+)_lam([0-9]+)_seed(\d+)"
+    pattern = (
+        r"SloopVec_kv_(fw|tanh|rnn)_S(\d+)"
+        r"(?:_noise([0-9]+))?"
+        r"_eta([0-9]+)_lam([0-9]+)_seed(\d+)"
+        r"\.csv$"
+    )
     m = re.match(pattern, base)
 
     if m is None:
@@ -37,27 +40,40 @@ def parse_sloop_filename(fname):
 
     core = m.group(1)
     S = int(m.group(2))
-    eta = m.group(3)
-    lam = m.group(4)
-    seed = m.group(5)
-    model_id = f"{core}_S{S}_eta{eta}_lam{lam}_seed{seed}"
+    noise = m.group(3)
+    eta = m.group(4)
+    lam = m.group(5)
+    seed = m.group(6)
+
+    noise_str = f"_noise{noise}" if noise is not None else ""
+    model_id = f"{core}_S{S}{noise_str}_eta{eta}_lam{lam}_seed{seed}"
     return core, S, eta, lam, seed, model_id
 
 
+# --------------------------------------------------
+# Amat ファイル名パーサ（fw / tanh のみ）
+# --------------------------------------------------
 def parse_amat_filename(fname):
     base = os.path.basename(fname)
-    pattern = r"Amat_kv_(fw|tanh)_S(\d+)_eta([0-9]+)_lam([0-9]+)_seed(\d+)"
+    pattern = (
+        r"Amat_kv_(fw|tanh)_S(\d+)"
+        r"(?:_noise([0-9]+))?"
+        r"_eta([0-9]+)_lam([0-9]+)_seed(\d+)"
+        r"\.csv$"
+    )
     m = re.match(pattern, base)
-
     if m is None:
         return None
 
     core = m.group(1)
     S = int(m.group(2))
-    eta = m.group(3)
-    lam = m.group(4)
-    seed = m.group(5)
-    model_id = f"{core}_S{S}_eta{eta}_lam{lam}_seed{seed}"
+    noise = m.group(3)
+    eta = m.group(4)
+    lam = m.group(5)
+    seed = m.group(6)
+
+    noise_str = f"_noise{noise}" if noise is not None else ""
+    model_id = f"{core}_S{S}{noise_str}_eta{eta}_lam{lam}_seed{seed}"
     return core, S, eta, lam, seed, model_id
 
 
@@ -71,14 +87,13 @@ def load_A(csv_path):
     for _, row in df.iterrows():
         vals = row.values.astype(float)
 
-        # 1列余っていたら先頭を落とす
         if int(np.sqrt(vals.shape[0] - 1)) ** 2 == vals.shape[0] - 1:
             vals = vals[1:]
 
         L = vals.shape[0]
         d = int(np.sqrt(L))
         if d * d != L:
-            raise ValueError(f"A row size {L} cannot form square: {L}")
+            raise ValueError(f"A row size {L} cannot form square")
 
         A_list.append(vals.reshape(d, d))
 
@@ -86,59 +101,44 @@ def load_A(csv_path):
 
 
 # --------------------------------------------------
-# 1 モデル分の ratio(t) = ||A_t h_t^{last input}|| / ||h_t^base|| を計算
-#   - base: s = -1 の行
-#   - S-loop: s >= 0 の行から「最後の更新に入った h」を選ぶ
+# ratio(t) 計算
 # --------------------------------------------------
 def compute_ratio_curve(sloop_csv, amat_csv):
     df = pd.read_csv(sloop_csv)
     A_list = load_A(amat_csv)
 
     groups = df.groupby("t")
-
-    t_list = []
-    ratio_list = []
+    t_list, ratio_list = [], []
 
     for t, g in groups:
         t = int(t)
 
-        # base（s = -1）
         base_rows = g[g["s"] == -1]
         if len(base_rows) == 0:
-            # 想定外フォーマットならスキップ
             continue
-        base_vec = base_rows.iloc[0]
-        base_h = base_vec.filter(regex=r"h\[").values.astype(float)
-        norm_base = np.linalg.norm(base_h) + 1e-8  # ゼロ除算防止
 
-        # A_t
+        base_h = base_rows.iloc[0].filter(regex=r"h\[").values.astype(float)
+        norm_base = np.linalg.norm(base_h) + 1e-8
+
         if t >= len(A_list):
-            # 安全のため範囲外ならスキップ
             continue
         A = A_list[t]
 
-        # S-loop 部分（s >= 0）だけ取り出して s でソート
         loop_rows = g[g["s"] >= 0].sort_values("s")
-
         if len(loop_rows) == 0:
-            # S=0 など、S-loop なしの場合はスキップ
             continue
         elif len(loop_rows) == 1:
-            # 1 個しかなければそれを「更新に使った h」とみなす
             target_row = loop_rows.iloc[0]
         else:
-            # 最後の 1 個前を「最後の更新で A に入った h」とみなす
             target_row = loop_rows.iloc[-2]
 
         h_target = target_row.filter(regex=r"h\[").values.astype(float)
-
         Ah = A @ h_target
         ratio = np.linalg.norm(Ah) / norm_base
 
         t_list.append(t)
         ratio_list.append(ratio)
 
-    # t の昇順に並べ替え
     t_arr = np.array(t_list)
     ratio_arr = np.array(ratio_list)
     order = np.argsort(t_arr)
@@ -150,26 +150,16 @@ def compute_ratio_curve(sloop_csv, amat_csv):
 # --------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--dir",
-        type=str,
-        default="../results_A_kv",
-        help="SloopVec_kv_*.csv / Amat_kv_*.csv のあるディレクトリ",
-    )
+    ap.add_argument("--dir", type=str, default="../results_A_kv")
     args = ap.parse_args()
 
-    # ファイル探索
     sloop_list = sorted(glob.glob(os.path.join(args.dir, "SloopVec_kv_*.csv")))
     amat_list = sorted(glob.glob(os.path.join(args.dir, "Amat_kv_*.csv")))
 
-    if len(sloop_list) == 0:
-        print("[ERROR] No SloopVec_kv_*.csv found.")
-        return
-    if len(amat_list) == 0:
-        print("[ERROR] No Amat_kv_*.csv found.")
+    if len(sloop_list) == 0 or len(amat_list) == 0:
+        print("[ERROR] Required CSV files not found.")
         return
 
-    # Amat 側を model_id -> path でマップ
     amat_map = {}
     for a_csv in amat_list:
         parsed = parse_amat_filename(a_csv)
@@ -178,100 +168,58 @@ def main():
         _, _, _, _, _, model_id = parsed
         amat_map[model_id] = a_csv
 
-    # 出力ディレクトリ
     out_dir = "plots/sloop_all"
     os.makedirs(out_dir, exist_ok=True)
 
-    # 各モデルの曲線を SC-FW / Ba-FW に分けて保持
-    curves_sc = []  # (t_arr, ratio_arr, label)
-    curves_ba = []
+    curves_sc, curves_ba = [], []
 
     for s_csv in sloop_list:
         core, S, eta, lam, seed, model_id = parse_sloop_filename(s_csv)
+
+        # ★ rnn は A が無いのでスキップ
+        if core == "rnn":
+            print(f"[SKIP] rnn has no A-matrix: {os.path.basename(s_csv)}")
+            continue
 
         if model_id not in amat_map:
             print(f"[WARN] Amat not found for {model_id}, skip.")
             continue
 
-        a_csv = amat_map[model_id]
         print(f"[PROCESS] {model_id}")
-        t_arr, ratio_arr = compute_ratio_curve(s_csv, a_csv)
+        t_arr, ratio_arr = compute_ratio_curve(s_csv, amat_map[model_id])
 
-        # 凡例用の core 名を SC-FW / Ba-FW に変換
         if core == "fw":
-            core_label = "SC-FW"
-            curves_sc.append(
-                (t_arr, ratio_arr,
-                 f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}")
-            )
+            curves_sc.append((t_arr, ratio_arr, f"SC-FW_S{S}_eta{eta}_lam{lam}_seed{seed}"))
         elif core == "tanh":
-            core_label = "Ba-FW"
-            curves_ba.append(
-                (t_arr, ratio_arr,
-                 f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}")
-            )
-        else:
-            core_label = core.upper()
-            curves_sc.append(
-                (t_arr, ratio_arr,
-                 f"{core_label}_S{S}_eta{eta}_lam{lam}_seed{seed}")
-            )
+            curves_ba.append((t_arr, ratio_arr, f"Ba-FW_S{S}_eta{eta}_lam{lam}_seed{seed}"))
 
     if len(curves_sc) == 0 and len(curves_ba) == 0:
         print("[ERROR] No valid curves to plot.")
         return
 
-    # --------------------------------------------------
-    # プロット：SC-FW / Ba-FW を上下に分ける
-    # --------------------------------------------------
     if len(curves_sc) > 0 and len(curves_ba) > 0:
         fig, (ax_sc, ax_ba) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
 
-        # 上段: SC-FW
-        for t_arr, ratio_arr, label in curves_sc:
-            ax_sc.plot(t_arr, ratio_arr, marker="o", label=label)
+        for t, r, lab in curves_sc:
+            ax_sc.plot(t, r, marker="o", label=lab)
         ax_sc.axhline(1.0, color="gray", linestyle="--")
-        ax_sc.set_ylabel(r"$\|A_t h_t\|_2 / \|h_t^{\mathrm{base}}\|_2$")
-        ax_sc.set_title("SC-FW (self-consistent S-loop)")
+        ax_sc.set_title("SC-FW")
         ax_sc.grid(True)
         ax_sc.legend()
 
-        # 下段: Ba-FW
-        for t_arr, ratio_arr, label in curves_ba:
-            ax_ba.plot(t_arr, ratio_arr, marker="o", label=label)
+        for t, r, lab in curves_ba:
+            ax_ba.plot(t, r, marker="o", label=lab)
         ax_ba.axhline(1.0, color="gray", linestyle="--")
-        ax_ba.set_xlabel("t (step)")
-        ax_ba.set_ylabel(r"$\|A_t h_t\|_2 / \|h_t^{\mathrm{base}}\|_2$")
         ax_ba.set_title("Ba-FW")
         ax_ba.grid(True)
         ax_ba.legend()
 
-        fig.suptitle(
-            r"ratio over time: "
-            r"$\|A_t h_t\|_2 / \|h_t^{\mathrm{base}}\|_2$",
-            y=0.99,
-        )
-
     else:
-        # どちらか片方しか無い場合は 1 枚だけ描画
         fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-        if len(curves_sc) > 0:
-            for t_arr, ratio_arr, label in curves_sc:
-                ax.plot(t_arr, ratio_arr, marker="o", label=label)
-            title_suffix = "SC-FW only"
-        else:
-            for t_arr, ratio_arr, label in curves_ba:
-                ax.plot(t_arr, ratio_arr, marker="o", label=label)
-            title_suffix = "Ba-FW only"
-
+        curves = curves_sc if len(curves_sc) > 0 else curves_ba
+        for t, r, lab in curves:
+            ax.plot(t, r, marker="o", label=lab)
         ax.axhline(1.0, color="gray", linestyle="--")
-        ax.set_xlabel("t (step)")
-        ax.set_ylabel(r"$\|A_t h_t\|_2 / \|h_t^{\mathrm{base}}\|_2$")
-        ax.set_title(
-            r"ratio over time: "
-            r"$\|A_t h_t\|_2 / \|h_t^{\mathrm{base}}\|_2$"
-            f" ({title_suffix})"
-        )
         ax.grid(True)
         ax.legend()
 

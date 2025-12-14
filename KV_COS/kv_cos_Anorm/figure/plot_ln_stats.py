@@ -71,33 +71,34 @@ def stats_1d(x: torch.Tensor):
 def parse_name(basename: str):
     """
     ファイル名から core, S, eta, lam, seed などを取り出す。
-    例: kv_fw_S1_fw1_eta0300_lam0850_seed0.pt
+    例:
+      kv_fw_S1_noise0400_eta0300_lam0950_seed0
+      kv_fw_S1_noise0400_fw1_eta0300_lam0950_seed0
     """
     pat = re.compile(
-        r"^kv_(?P<core>\w+)_S(?P<S>\d+)_fw(?P<fw>\d)_eta(?P<eta>\d{4})_lam(?P<lam>\d{4})_seed(?P<seed>\d+)$"
+        r"^kv_(?P<core>\w+)_S(?P<S>\d+)"
+        r"(?:_noise(?P<noise>\d{4}))?"
+        r"(?:_fw(?P<fw>\d))?"                 # ★ fw を任意にする
+        r"_eta(?P<eta>\d{4})_lam(?P<lam>\d{4})_seed(?P<seed>\d+)$"
     )
     m = pat.match(basename)
     if m is None:
-        return dict(
-            core="?",
-            S=None,
-            fw=None,
-            eta=None,
-            lam=None,
-            seed=None,
-        )
+        return dict(core="?", S=None, fw=None, eta=None, lam=None, seed=None, noise=None)
 
     d = m.groupdict()
-    # eta0300 -> 0.300, lam0850 -> 0.850
     eta = int(d["eta"]) / 1000.0
     lam = int(d["lam"]) / 1000.0
+    noise = int(d["noise"]) / 1000.0 if d.get("noise") is not None else None
+    fw = int(d["fw"]) if d.get("fw") is not None else None
+
     return dict(
         core=d["core"],
         S=int(d["S"]),
-        fw=int(d["fw"]),
+        fw=fw,
         eta=eta,
         lam=lam,
         seed=int(d["seed"]),
+        noise=noise,
     )
 
 
@@ -108,7 +109,7 @@ def main():
     # ここを変更
     plots_dir = os.path.join(root_dir, "figure/plots")
     default_ckpt_pattern = os.path.join(
-        root_dir, "checkpoints", "kv_*_S*_fw*_eta*_lam*_seed*.pt"
+        root_dir, "checkpoints", "kv_*_S*_noise*_eta*_lam*_seed*.pt"
     )
     default_out_dir = os.path.join(plots_dir, "results_LN_stats")
 

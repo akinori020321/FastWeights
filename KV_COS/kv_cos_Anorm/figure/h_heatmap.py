@@ -6,6 +6,10 @@ h_heatmap.py + dot-product heatmap
 Cosine similarity と Dot-product の2種類のヒートマップを生成する。
 クラス番号に基づいて枠線を色分けし、
 対角青・クラス枠線・query 対応枠線を描画する。
+
+★ class色割当ルール（PCA/kv_dyn_cos と統一）:
+  kind in ("bind","value","query") かつ class_id>=0 を t順に走査し、
+  初出 class_id に順番に色を割り当てる。
 """
 
 import os
@@ -18,6 +22,7 @@ import seaborn as sns
 import re
 import matplotlib.patches as patches
 from matplotlib.colors import LinearSegmentedColormap
+from collections import defaultdict
 
 
 # --------------------------------------------------
@@ -50,11 +55,15 @@ def dot_matrix(H):
 
 
 # --------------------------------------------------
-# ファイル名パーサ
+# ファイル名パーサ（noise あり / なし両対応）
 # --------------------------------------------------
 def parse_filename(fname):
     base = os.path.basename(fname)
-    pattern = r"H_kv_(fw|tanh|rnn)_S([0-9]+)_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+    pattern = (
+        r"H_kv_(fw|tanh|rnn)_S([0-9]+)"
+        r"(?:_noise([0-9]+))?"
+        r"_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+    )
     m = re.match(pattern, base)
 
     if m is None:
@@ -62,9 +71,9 @@ def parse_filename(fname):
 
     core = m.group(1)
     S = int(m.group(2))
-    eta = m.group(3)
-    lam = m.group(4)
-    seed = m.group(5)
+    eta = m.group(4)
+    lam = m.group(5)
+    seed = m.group(6)
     return core, S, eta, lam, seed
 
 
@@ -79,18 +88,41 @@ CORE_NAME = {
 
 
 # --------------------------------------------------
-# クラス枠用の色リスト（赤・緑から離れた色だけ）
+# クラス枠用の色リスト（高輝度・高彩度）
+#  ピンク・オレンジ・シアンブルー・明るい緑
 # --------------------------------------------------
 CLASS_OUTLINE_COLORS = [
-    "#1f77b4",  # 濃い青
-    "#9467bd",  # 紫
-    "#17becf",  # シアン
-    "#7f7f7f",  # グレー
-    "#8c564b",  # ブラウン
-    "#aec7e8",  # 明るい青
-    "#c5b0d5",  # 明るい紫
-    "#9edae5",  # 明るいシアン
+    "#ff4fa3",  # vivid pink
+    "#ff9f1a",  # vivid orange
+    "#4dd9ff",  # bright cyan-blue
+    "#6dff6d",  # bright green
 ]
+
+
+# --------------------------------------------------
+# ★ predicate 統一の cid->color を作る
+#   kind in ("bind","value","query") かつ class_id>=0 を t順に走査
+#   戻り値: (cid2color, ordered_cids)
+# --------------------------------------------------
+def build_cid2color_bvq(kinds, class_ids):
+    cid2color = {}
+    ordered_cids = []
+    color_idx = 0
+
+    for k, cid in zip(kinds, class_ids):
+        cid = int(cid)
+        if cid < 0:
+            continue
+        if k not in ("bind", "value", "query"):
+            continue
+        if cid in cid2color:
+            continue
+
+        cid2color[cid] = CLASS_OUTLINE_COLORS[color_idx % len(CLASS_OUTLINE_COLORS)]
+        ordered_cids.append(cid)
+        color_idx += 1
+
+    return cid2color, ordered_cids
 
 
 # --------------------------------------------------
@@ -111,24 +143,24 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
             )
         )
 
-    # ---- ② 同じ class_id を持つステップの枠線強調 ----
-    #  - class_id >= 0 だけ対象
-    #  - kind が "bind" / "value" / "query" のものをまとめる
-    from collections import defaultdict
+    # ---- ② class_to_steps（bvq & cid>=0） ----
     class_to_steps = defaultdict(list)
     for t in range(T):
-        cid = class_ids[t]
+        cid = int(class_ids[t])
+        k = kinds[t]
         if cid < 0:
             continue
-        k = kinds[t]
         if k not in ("bind", "value", "query"):
             continue
         class_to_steps[cid].append(t)
 
-    colors = CLASS_OUTLINE_COLORS
+    # ---- ③ cid2color（bvq & cid>=0 の初出順） ----
+    cid2color, _ordered = build_cid2color_bvq(kinds, class_ids)
 
-    for idx_c, (cid, steps) in enumerate(sorted(class_to_steps.items())):
-        color = colors[idx_c % len(colors)]
+    # ---- ④ 枠線描画（出現順で） ----
+    for cid in _ordered:
+        color = cid2color[cid]
+        steps = class_to_steps[cid]
         for i in steps:
             for j in steps:
                 if i == j:
@@ -142,15 +174,15 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
                     )
                 )
 
-    # ---- ③ query と同じクラスの bind/value をマゼンタで強調 ----
+    # ---- ⑤ query と同じクラスの bind/value をマゼンタで強調 ----
     if "query" in kinds:
         q_step = kinds.index("query")
-        q_cid = class_ids[q_step]
+        q_cid = int(class_ids[q_step])
 
         if q_cid >= 0:
             key_steps = [
                 t for t in range(T)
-                if kinds[t] in ("bind", "value") and class_ids[t] == q_cid
+                if (kinds[t] in ("bind", "value")) and (int(class_ids[t]) == q_cid)
             ]
 
             for key_step in key_steps:

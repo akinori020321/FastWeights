@@ -31,7 +31,7 @@ def build_core_model(args):
         lambda_decay=args.lambda_decay,
         eta=args.eta,
         use_layernorm=args.use_ln,
-        use_A=args.use_fw,
+        use_A=args.use_fw,   # ← rnn のときは main側で False に強制される
     )
 
     if args.core_type == "fw":
@@ -43,6 +43,18 @@ def build_core_model(args):
         from fw_kv.models.core_tanh import CoreRNNFW
         print("[Model] Using core_tanh (direction unified)")
         return CoreRNNFW(cfg)
+
+    elif args.core_type == "rnn":
+        # ★ RNN専用実装があるならそれを使う
+        #    無い場合は安全策として core_fw を「A無効」で代替（重み互換を壊さない）
+        try:
+            from fw_kv.models.core_rnn import CoreRNN
+            print("[Model] Using core_rnn (no Fast Weights)")
+            return CoreRNN(cfg)
+        except Exception as e:
+            from fw_kv.models.core_fw import CoreRNNFW
+            print(f"[WARN] core_rnn import failed ({e}). Fallback: core_fw with A disabled (RNN-LN mode)")
+            return CoreRNNFW(cfg)
 
     else:
         raise ValueError("Unsupported core_type")
@@ -59,7 +71,7 @@ def main():
     ap.add_argument("--out_csv", type=str, default="results_A_kv/A_kv_fw_S1.csv")
 
     # model設定
-    ap.add_argument("--core_type", type=str, default="fw", choices=["fw", "tanh"])
+    ap.add_argument("--core_type", type=str, default="fw", choices=["rnn", "fw", "tanh"])
     ap.add_argument("--d_g", type=int, default=64)
     ap.add_argument("--d_h", type=int, default=128)
     ap.add_argument("--S", type=int, default=1)
@@ -79,7 +91,6 @@ def main():
     # ★ 追加：bind_noise_std（Clean 部分のノイズ率）
     ap.add_argument("--bind_noise_std", type=float, default=0.0,
                     help="Bind（Clean）のノイズ混合率 r。KVDataset の bind_noise_std と対応。")
-
 
     # ★ Wait ステップ数（Δ_wait 用）
     ap.add_argument(
@@ -103,6 +114,28 @@ def main():
 
     ap.set_defaults(use_ln=True, use_fw=True)
     args = ap.parse_args()
+
+    # --------------------------------------------------
+    # ★ core_type=rnn のときは FW(A) を必ず無効化
+    #    （core名は rnn のまま運用 → ファイル名にも反映）
+    # --------------------------------------------------
+    if args.core_type == "rnn":
+        args.use_fw = False
+        print("[INFO] core_type=rnn → force use_fw=False (A disabled)")
+
+    # --------------------------------------------------
+    # ★ out_csv 自動命名（ユーザーが指定してない場合のみ）
+    #    rnn / fw / tanh の core名がそのままファイル名に入る
+    # --------------------------------------------------
+    if args.out_csv == "results_A_kv/A_kv_fw_S1.csv":
+        args.out_csv = (
+            f"results_A_kv/A_kv_{args.core_type}"
+            f"_S{args.S}"
+            f"_eta{int(args.eta*1000):04d}"
+            f"_lam{int(args.lambda_decay*1000):04d}"
+            f"_seed{args.seed}.csv"
+        )
+        print(f"[INFO] Auto out_csv → {args.out_csv}")
 
     # --------------------------------------------------
     # シード & device
@@ -186,8 +219,6 @@ def main():
 
     # --------------------------------------------------
     # KV sequence（Direction Task）
-    #   → class_ids / key_ids は seq_gen 側で扱う
-    #   → Wait ステップも seq_gen 内で num_wait / wait_vec を使う
     # --------------------------------------------------
     z_seq, event_list, clean_target = make_keyvalue_sequence_direction(
         d_g=args.d_g,
@@ -196,15 +227,14 @@ def main():
         duplicate=args.duplicate,
         beta=args.beta,
         device=device,
-        seed=args.seed + 200,
+        seed=args.seed + 1400,
         mu_value=mu_value,
         key_proto=key_proto,
-        bind_noise_std=args.bind_noise_std,       # 必要なら argparse で引っ張ってくる
+        bind_noise_std=args.bind_noise_std,
         query_noise_std=0.0,
-        num_wait=args.num_wait,   # ★ 追加
-        wait_vec=wait_vec,        # ★ 追加（np.ndarray のまま渡す）
+        num_wait=args.num_wait,
+        wait_vec=wait_vec,
     )
-
 
     T_total = z_seq.size(0)
     print(f"[Info] Sequence generated: T={T_total}, B={args.batch_size}")
@@ -268,13 +298,12 @@ def main():
     print(f"[DONE] Saved KV A-dynamics → {args.out_csv}")
 
     # --------------------------------------------------
-    # Save A-matrix CSV (FW / tanh のみ)
+    # Save A-matrix CSV（FWが有効なときだけ）
     # --------------------------------------------------
     A_csv = args.out_csv.replace("A_kv_", "Amat_kv_")
 
-    # RNN の場合は A が存在しないためスキップ
-    if args.core_type in ["rnn"]:  
-        print("[INFO] core_type=rnn → A-matrix CSV を保存しません")
+    if not args.use_fw:
+        print("[INFO] use_fw=False → A-matrix CSV を保存しません")
     else:
         with open(A_csv, "w", newline="") as f:
             w = csv.writer(f)
@@ -288,7 +317,6 @@ def main():
                 w.writerow([t] + A_flat)
 
         print(f"[DONE] A-matrix CSV → {A_csv}")
-
 
     # --------------------------------------------------
     # S-loop CSV 保存
@@ -326,23 +354,24 @@ def main():
     print(f"[DONE] Saved CosValue CSV → {cos_csv}")
 
     # --------------------------------------------------
-    # h-full CSV 保存（★修正版）
+    # h-full CSV 保存（★RNNでも落ちないように index ガード）
     # --------------------------------------------------
     h_csv = args.out_csv.replace("A_kv_", "H_kv_")
 
     with open(h_csv, "w", newline="") as f:
         w = csv.writer(f)
 
-        # header を変更：step, kind, class_id, h[0], ...
         header = ["step", "kind", "class_id"] + [f"h[{i}]" for i in range(args.d_h)]
         w.writerow(header)
 
-        for t, h_t in enumerate(model.log_h_full):
-            # h_t : (B, d_h)
+        T = min(len(model.log_h_full), len(model.log_kind), len(model.log_class))
+
+        for t in range(T):
+            h_t = model.log_h_full[t]   # (B, d_h)
             h_mean = h_t.mean(dim=0).tolist()
 
-            kind = model.log_kind[t]          # "key" / "value" / "query"
-            cid  = int(model.log_class[t])    # クラスID (query の場合は bind_idx)
+            kind = model.log_kind[t]
+            cid  = int(model.log_class[t])
 
             w.writerow([t, kind, cid] + h_mean)
 
@@ -359,7 +388,6 @@ def main():
         with open(sloop_vec_csv, "w", newline="") as f:
             w = csv.writer(f)
 
-            # ---- header ----
             header = ["t", "s", "vec_type", "kind", "class_id"]
             header += [f"h[{i}]" for i in range(args.d_h)]
             w.writerow(header)
@@ -368,21 +396,16 @@ def main():
 
             for t in range(T):
 
-                # kind, class_id 判定
                 kind = model.log_kind[t] if t < len(model.log_kind) else "-"
                 cid  = int(model.log_class[t]) if t < len(model.log_class) else -1
 
-                # ---------------------------
                 # (1) base（s = -1）
-                # ---------------------------
-                h_base = model.log_base[t]     # shape: (B, d_h)
+                h_base = model.log_base[t]
                 h_base_mean = h_base.mean(dim=0).tolist()
 
                 w.writerow([t, -1, "base", kind, cid] + h_base_mean)
 
-                # ---------------------------
                 # (2) S-loop の h_s
-                # ---------------------------
                 h_s_list = model.log_h_sloop[t] if t < len(model.log_h_sloop) else []
 
                 for s, h_s in enumerate(h_s_list):
@@ -393,6 +416,7 @@ def main():
 
     else:
         print("[INFO] S-loop vector CSV は log_base / log_h_sloop が無いためスキップしました。")
+
 
 if __name__ == "__main__":
     main()

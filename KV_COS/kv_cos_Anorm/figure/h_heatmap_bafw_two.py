@@ -7,9 +7,9 @@ Ba-FW / SC-FW 各条件の cosine ヒートマップ図（1ファイル1枚）
 Ba-FW (core=fw) および SC-FW (core=tanh) の
 cosine 類似度ヒートマップをそれぞれ別々の PNG として出力する。
 
-出力（例）:
-  plots/sloop_all/kv_dyn_cos_bafw_S1_eta0300_lam0950_seed0.png
-  plots/sloop_all/kv_dyn_cos_scfw_S1_eta0500_lam0950_seed0.png
+★ class色割当ルール（PCA / h_heatmap(all) と統一）:
+  kind in ("bind","value","query") かつ class_id>=0 を t順に走査し、
+  初出 class_id に順番に色を割り当てる。
 """
 
 import os
@@ -17,12 +17,12 @@ import glob
 import argparse
 import numpy as np
 import pandas as pd
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sns
 import re
 import matplotlib.patches as patches
 from matplotlib.colors import LinearSegmentedColormap
+from collections import defaultdict
 
 
 # --------------------------------------------------
@@ -30,11 +30,8 @@ from matplotlib.colors import LinearSegmentedColormap
 # --------------------------------------------------
 def load_h_csv(path):
     df = pd.read_csv(path)
-
-    # h[...] だけを特徴ベクトルとして使う
     h_cols = [c for c in df.columns if c.startswith("h[")]
     H = df[h_cols].values.astype(float)
-
     return H, df["kind"].tolist(), df["class_id"].tolist()
 
 
@@ -43,17 +40,19 @@ def load_h_csv(path):
 # --------------------------------------------------
 def cosine_matrix(H):
     Hn = H / (np.linalg.norm(H, axis=1, keepdims=True) + 1e-8)
-    C = np.matmul(Hn, Hn.T)
-    return C
+    return np.matmul(Hn, Hn.T)
 
 
 # --------------------------------------------------
-# ファイル名パーサ
-#   H_kv_(fw|tanh|rnn)_S... を想定
+# ファイル名パーサ（noise あり / なし両対応）
 # --------------------------------------------------
 def parse_filename(fname):
     base = os.path.basename(fname)
-    pattern = r"H_kv_(fw|tanh|rnn)_S([0-9]+)_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+    pattern = (
+        r"H_kv_(fw|tanh|rnn)_S([0-9]+)"
+        r"(?:_noise([0-9]+))?"
+        r"_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+    )
     m = re.match(pattern, base)
 
     if m is None:
@@ -61,14 +60,14 @@ def parse_filename(fname):
 
     core = m.group(1)
     S = int(m.group(2))
-    eta = m.group(3)
-    lam = m.group(4)
-    seed = m.group(5)
+    eta = m.group(4)
+    lam = m.group(5)
+    seed = m.group(6)
     return core, S, eta, lam, seed
 
 
 # --------------------------------------------------
-# core 名を変換（タイトル表示用・ファイル名用）
+# core 名
 # --------------------------------------------------
 CORE_NAME = {
     "fw": "Ba-FW",
@@ -76,18 +75,46 @@ CORE_NAME = {
     "rnn": "RNN-LN",
 }
 
-CORE_PREFIX = {
-    "fw": "bafw",
-    "tanh": "scfw",
-    "rnn": "rnnln",
-}
+
+# --------------------------------------------------
+# ★ class 枠線用：最大限明るい固定色
+# --------------------------------------------------
+CLASS_OUTLINE_COLORS = [
+    "#ff4fa3",  # vivid pink
+    "#ff9f1a",  # vivid orange
+    "#4dd9ff",  # bright cyan-blue
+    "#6dff6d",  # bright green
+]
+
+
+# --------------------------------------------------
+# ★ predicate 統一の cid->color を作る
+#   kind in ("bind","value","query") かつ class_id>=0 を t順に走査
+#   戻り値: (cid2color, ordered_cids)
+# --------------------------------------------------
+def build_cid2color_bvq(kinds, class_ids):
+    cid2color = {}
+    ordered_cids = []
+    color_idx = 0
+
+    for k, cid in zip(kinds, class_ids):
+        cid = int(cid)
+        if cid < 0:
+            continue
+        if k not in ("bind", "value", "query"):
+            continue
+        if cid in cid2color:
+            continue
+
+        cid2color[cid] = CLASS_OUTLINE_COLORS[color_idx % len(CLASS_OUTLINE_COLORS)]
+        ordered_cids.append(cid)
+        color_idx += 1
+
+    return cid2color, ordered_cids
 
 
 # --------------------------------------------------
 # 共通のヒートマップ装飾
-#  - 対角青
-#  - 同じ class_id（bind / query）のペアを同じ色で枠囲み
-#  - Query と同じクラスの Bind との対応セルをマゼンタで強調
 # --------------------------------------------------
 def draw_single_heatmap(ax, M, kinds, class_ids):
     T = len(kinds)
@@ -101,30 +128,27 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
             )
         )
 
-    # ---- ② 同じ class_id を持つ bind / query の枠線強調 ----
-    from collections import defaultdict
+    # ---- ② bvq & cid>=0 の class_to_steps ----
     class_to_steps = defaultdict(list)
-
     for t in range(T):
-        cid = class_ids[t]
-        if cid < 0:
-            # bind_noise / wait などは無視
-            continue
+        cid = int(class_ids[t])
         k = kinds[t]
-        if k not in ("bind", "query"):
+        if cid < 0:
+            continue
+        if k not in ("bind", "value", "query"):
             continue
         class_to_steps[cid].append(t)
 
-    # tab20 の色リストからクラスごとに色を取る
-    cmap = mpl.colormaps["tab20"]
-    cmap_colors = cmap.colors  # RGBA のリスト
+    # ---- ③ bvq & cid>=0 の初出順で cid2color ----
+    cid2color, ordered = build_cid2color_bvq(kinds, class_ids)
 
-    for idx_c, (cid, steps) in enumerate(sorted(class_to_steps.items())):
-        color = cmap_colors[idx_c % len(cmap_colors)]
+    # ---- ④ 枠線描画（順序は ordered = 出現順） ----
+    for cid in ordered:
+        color = cid2color[cid]
+        steps = class_to_steps.get(cid, [])
         for i in steps:
             for j in steps:
                 if i == j:
-                    # 対角はすでに青塗りしているのでスキップ
                     continue
                 ax.add_patch(
                     patches.Rectangle(
@@ -135,16 +159,15 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
                     )
                 )
 
-    # ---- ③ query と「同じクラスの bind」をマゼンタでさらに強調 ----
+    # ---- ⑤ query と同じクラスの bind/value をマゼンタで強調 ----
     if "query" in kinds:
         q_step = kinds.index("query")
-        q_cid = class_ids[q_step]
+        q_cid = int(class_ids[q_step])
 
         if q_cid >= 0:
-            # 同じ class_id を持つ bind の時刻をすべて取得
             key_steps = [
                 t for t in range(T)
-                if kinds[t] == "bind" and class_ids[t] == q_cid
+                if (kinds[t] in ("bind", "value")) and (int(class_ids[t]) == q_cid)
             ]
 
             for key_step in key_steps:
@@ -160,10 +183,9 @@ def draw_single_heatmap(ax, M, kinds, class_ids):
 
 
 # --------------------------------------------------
-# 指定された CSV 群の cosine heatmap を 1枚ずつ描画
+# cosine heatmap を 1枚ずつ描画
 # --------------------------------------------------
 def plot_each_core(csv_list, out_dir, out_prefix="kv_dyn_cos"):
-    # cos 用カラーマップ（元と同じ）
     cmap = LinearSegmentedColormap.from_list(
         "custom_cmap",
         [
@@ -179,7 +201,6 @@ def plot_each_core(csv_list, out_dir, out_prefix="kv_dyn_cos"):
         C = cosine_matrix(H)
         core, S, eta, lam, seed = parse_filename(csv_path)
         core_name = CORE_NAME.get(core, core)
-        core_prefix = CORE_PREFIX.get(core, core)
 
         fig, ax = plt.subplots(1, 1, figsize=(5, 4))
 
@@ -194,14 +215,13 @@ def plot_each_core(csv_list, out_dir, out_prefix="kv_dyn_cos"):
 
         draw_single_heatmap(ax, C, kinds, class_ids)
 
-        title = f"{core_name}_S{S}_eta{eta}_lam{lam}_seed{seed}"
-        ax.set_title(title, fontsize=11)
+        ax.set_title(f"{core_name}_S{S}_eta{eta}_lam{lam}_seed{seed}", fontsize=11)
         ax.set_xlabel("t")
         ax.set_ylabel("t")
 
         plt.tight_layout()
 
-        fname = f"{out_prefix}_{core_prefix}_S{S}_eta{eta}_lam{lam}_seed{seed}.png"
+        fname = f"{out_prefix}_{core}_S{S}_eta{eta}_lam{lam}_seed{seed}.png"
         out_path = os.path.join(out_dir, fname)
         plt.savefig(out_path, dpi=200)
         plt.close()
@@ -213,35 +233,20 @@ def plot_each_core(csv_list, out_dir, out_prefix="kv_dyn_cos"):
 # --------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", type=str, default="../results_A_kv",
-                    help="H_kv_*.csv が置いてあるディレクトリ")
-    ap.add_argument("--out_prefix", type=str,
-                    default="kv_dyn_cos",
-                    help="出力ファイル名のプレフィックス")
+    ap.add_argument("--dir", type=str, default="../results_A_kv")
+    ap.add_argument("--out_prefix", type=str, default="kv_dyn_cos")
     args = ap.parse_args()
 
     save_dir = "plots/sloop_all"
     os.makedirs(save_dir, exist_ok=True)
 
-    # Ba-FW (core=fw)
     csv_fw = sorted(glob.glob(os.path.join(args.dir, "H_kv_fw_*.csv")))
-    if len(csv_fw) == 0:
-        print("[WARN] No H_kv_fw_*.csv found.")
-    else:
-        print(f"[INFO] Found {len(csv_fw)} Ba-FW files")
-        for c in csv_fw:
-            print(" -", c)
-        plot_each_core(csv_fw, out_dir=save_dir, out_prefix=args.out_prefix)
-
-    # SC-FW (core=tanh)
     csv_scfw = sorted(glob.glob(os.path.join(args.dir, "H_kv_tanh_*.csv")))
-    if len(csv_scfw) == 0:
-        print("[WARN] No H_kv_tanh_*.csv found.")
-    else:
-        print(f"[INFO] Found {len(csv_scfw)} SC-FW files")
-        for c in csv_scfw:
-            print(" -", c)
-        plot_each_core(csv_scfw, out_dir=save_dir, out_prefix=args.out_prefix)
+
+    if csv_fw:
+        plot_each_core(csv_fw, save_dir, args.out_prefix)
+    if csv_scfw:
+        plot_each_core(csv_scfw, save_dir, args.out_prefix)
 
 
 if __name__ == "__main__":
