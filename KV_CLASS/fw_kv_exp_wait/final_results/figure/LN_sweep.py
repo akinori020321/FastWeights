@@ -30,11 +30,18 @@ COLOR_MAP = {
     ("0", "1"): "cyan",   # RNN, LN1
 }
 
+# ======================================================
+# ★ ラベル設定（0/1表記をやめて、RNN/FW と +LN にする）
+#   RNN+LN
+#   FW+LN
+#   RNN
+#   FW
+# ======================================================
 LABEL_MAP = {
-    ("1", "0"): "FW (LN=0)",
-    ("1", "1"): "FW (LN=1)",
-    ("0", "0"): "RNN (LN=0)",
-    ("0", "1"): "RNN (LN=1)",
+    ("0", "1"): "RNN+LN",
+    ("1", "1"): "Ba-FW+LN",
+    ("0", "0"): "RNN",
+    ("1", "0"): "Ba-FW",
 }
 
 # ファイル名から fw/ln を抜き出す用
@@ -125,7 +132,7 @@ def main():
     plt.ylim(0.0, 1.0)
     plt.grid(True)
     plt.legend()
-    plt.title("Layer normalization (FW vs RNN, with/without LN)")
+    plt.title("Effect of Layer Normalization on Ba-FW and RNN")
 
     out_path = os.path.join(OUT_DIR, "ln_sweep_acc.png")
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
