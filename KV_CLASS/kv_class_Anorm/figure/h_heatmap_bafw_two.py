@@ -177,10 +177,10 @@ def plot_each_core(csv_list, out_dir, out_prefix="kv_dyn_cos"):
 
         draw_single_heatmap(ax, C, kinds, class_ids)
 
-        title = f"{core_name}_S{S}_eta{eta}_lam{lam}_seed{seed}"
+        title = f"{core_name}, S={S}, η={int(eta)/1000.0:g}, λ={int(lam)/1000.0:g}"
         ax.set_title(title, fontsize=11)
-        ax.set_xlabel("t")
-        ax.set_ylabel("t")
+        ax.set_xlabel("t (step)")
+        ax.set_ylabel("t (step)")
 
         plt.tight_layout()
 

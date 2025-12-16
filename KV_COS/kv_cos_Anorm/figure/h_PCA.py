@@ -10,9 +10,10 @@ h_PCA_timeseries_color.py
       ただし predicate を統一：
         kind in ("bind","value","query") かつ class_id>=0 を t順に走査して初出順に色
  - ★ query のみ「星マーカー」
- - ★ 各 subplot 右上に class 色バー（凡例）
+ - ★ 各図の右上に class 色バー（凡例）
  - ★ wait（class_id < 0）には輪っかを付けない
  - 右側に全体共通のカラーバー
+ - ★ 1ファイルにつき 1枚の PNG として出力
 """
 
 import os
@@ -61,8 +62,14 @@ def load_h_csv(path):
 
 
 # --------------------------------------------------
-# ファイル名 → タイトル
+# ファイル名 → タイトル / 出力名
 # --------------------------------------------------
+CORE_NAME = {
+    "fw": "Ba-FW",
+    "tanh": "SC-FW",
+    "rnn": "RNN+LN",
+}
+
 def parse_title(fname):
     base = os.path.basename(fname)
     pattern = (
@@ -75,8 +82,30 @@ def parse_title(fname):
         return base
 
     core, S, noise, eta, lam, seed = m.groups()
+    core_name = CORE_NAME.get(core, core)
+
+    eta_f = int(eta) / 1000.0
+    lam_f = int(lam) / 1000.0
+
+    noise_str = f", noise={int(noise)/1000.0:g}" if noise else ""
+    return f"{core_name}, S={int(S)}, η={eta_f:g}, λ={lam_f:g}{noise_str}"
+
+
+def parse_outname(fname):
+    base = os.path.basename(fname)
+    pattern = (
+        r"H_kv_(fw|tanh|rnn)_S(\d+)"
+        r"(?:_noise(\d+))?"
+        r"_eta(\d+)_lam(\d+)_seed(\d+)"
+    )
+    m = re.match(pattern, base)
+    if m is None:
+        return os.path.splitext(base)[0] + ".png"
+
+    core, S, noise, eta, lam, seed = m.groups()
+    core_name = CORE_NAME.get(core, core).lower().replace("+", "").replace("-", "")
     noise_str = f"_noise{noise}" if noise else ""
-    return f"{core}_S{S}{noise_str}_eta{eta}_lam{lam}_seed{seed}"
+    return f"h_pca_{core_name}_S{S}{noise_str}_eta{eta}_lam{lam}.png"
 
 
 # --------------------------------------------------
@@ -108,23 +137,14 @@ def build_class_color_map(kinds, class_ids):
 
 
 # --------------------------------------------------
-# PCA プロット
+# PCA プロット（1ファイル=1図）
 # --------------------------------------------------
-def plot_pca_subplots(csv_list, out_png):
-    N = len(csv_list)
-    ncols = 2
-    nrows = int(np.ceil(N / ncols))
-
-    fig = plt.figure(figsize=(8 * ncols, 6 * nrows))
-    gs = fig.add_gridspec(nrows, ncols)
-
-    axes = [[fig.add_subplot(gs[r, c]) for c in range(ncols)]
-            for r in range(nrows)]
-
+def plot_each_csv(csv_list, out_dir):
     cmap = plt.cm.plasma
-    Tmax = max(pd.read_csv(p).shape[0] for p in csv_list)
 
-    for idx, csv_path in enumerate(csv_list):
+    os.makedirs(out_dir, exist_ok=True)
+
+    for csv_path in sorted(csv_list):
         H, class_ids, kinds = load_h_csv(csv_path)
         T = H.shape[0]
 
@@ -134,8 +154,7 @@ def plot_pca_subplots(csv_list, out_png):
         pca = PCA(n_components=2)
         H_pca = pca.fit_transform(H)
 
-        r, c = divmod(idx, ncols)
-        ax = axes[r][c]
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
         colors_time = cmap(np.linspace(0, 1, T))
 
@@ -227,43 +246,41 @@ def plot_pca_subplots(csv_list, out_png):
             framealpha=0.85
         )
 
-    # 余り subplot を消す
-    for i in range(N, nrows * ncols):
-        axes[i // ncols][i % ncols].axis("off")
+        # ------------------------
+        # カラーバー（時間）
+        # ------------------------
+        sm = plt.cm.ScalarMappable(
+            cmap=cmap,
+            norm=plt.Normalize(0, T - 1)
+        )
+        sm.set_array([])
+        cbar = fig.colorbar(
+            sm,
+            ax=ax,
+            fraction=0.046,
+            pad=0.04
+        )
+        cbar.set_label("time step (t=0 → t=T)")
 
-    # ------------------------
-    # 共通カラーバー（時間）
-    # ------------------------
-    sm = plt.cm.ScalarMappable(
-        cmap=cmap,
-        norm=plt.Normalize(0, Tmax - 1)
-    )
-    sm.set_array([])
-    fig.subplots_adjust(right=0.88)
-    cbar = fig.colorbar(
-        sm,
-        ax=[ax for row in axes for ax in row],
-        fraction=0.025,
-        pad=0.01
-    )
-    cbar.set_label("time step (t=0 → t=T)")
+        plt.tight_layout()
 
-    os.makedirs("plots/h_pca", exist_ok=True)
-    out_path = os.path.join("plots/h_pca", out_png)
-    plt.savefig(out_path, dpi=200)
-    print(f"[SAVED] {out_path}")
+        out_png = parse_outname(csv_path)
+        out_path = os.path.join(out_dir, out_png)
+        plt.savefig(out_path, dpi=200)
+        plt.close()
+        print(f"[SAVED] {out_path}")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", type=str, default="../results_A_kv")
-    ap.add_argument("--out", type=str, default="h_pca_timeseries_color.png")
+    ap.add_argument("--out_dir", type=str, default="plots/h_pca")
     args = ap.parse_args()
 
     csv_list = sorted(glob.glob(os.path.join(args.dir, "H_kv_*.csv")))
     print("[INFO] Found", len(csv_list), "files")
 
-    plot_pca_subplots(csv_list, args.out)
+    plot_each_csv(csv_list, args.out_dir)
 
 
 if __name__ == "__main__":

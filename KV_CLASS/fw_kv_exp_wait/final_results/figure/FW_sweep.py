@@ -115,7 +115,7 @@ def process_s_dir(s_path):
     )
 
 
-    plt.title(f"Ba-FW acc Heatmap (S={S_value})")
+    plt.title(f"Accuracy Heatmap of Ba-FW (S = {S_value})")
     plt.xlabel("eta")
     plt.ylabel("lambda")
 

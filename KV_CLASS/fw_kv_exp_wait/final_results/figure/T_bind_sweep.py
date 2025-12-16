@@ -28,12 +28,16 @@ COLOR_MAP = {
     "tanh": "green",
 }
 
+# ★ 表示用ラベル（論文用）
+LABEL_MAP = {
+    "rnn":  "RNN+LN",
+    "fw":   "Ba-FW",
+    "tanh": "SC-FW",
+}
+
 # ファイル名例：
 # fw_fw0_T8_S1_seed0_beta1.00_wait0.csv
-PATTERN = re.compile(
-    r"_T(?P<T>\d+)_S(?P<S>\d+)_seed(?P<seed>\d+)"
-)
-
+PATTERN = re.compile(r"_T(?P<T>\d+)_S(?P<S>\d+)_seed(?P<seed>\d+)")
 
 # ======================================================
 # CSV 読み取り：最終 epoch の acc を取得
@@ -41,14 +45,14 @@ PATTERN = re.compile(
 def read_final_acc(path):
     try:
         df = pd.read_csv(path)
-    except:
+    except Exception:
         return None
+
     if "valid_acc" in df.columns:
         return float(df["valid_acc"].iloc[-1])
     elif "acc" in df.columns:
         return float(df["acc"].iloc[-1])
     return None
-
 
 # ======================================================
 # 各モデルの T_bind → acc の dict を作る
@@ -79,14 +83,13 @@ def load_model_stats(model_dir):
     for T in sorted(acc_by_T.keys()):
         vals = acc_by_T[T]
         T_list.append(T)
-        acc_mean.append(np.mean(vals))
-        acc_std.append(np.std(vals))
+        acc_mean.append(float(np.mean(vals)))
+        acc_std.append(float(np.std(vals)))
 
     return T_list, acc_mean, acc_std
 
-
 # ======================================================
-# メイン：点＋エラーバー
+# メイン：点＋エラーバー + 薄いガイド線
 # ======================================================
 def main():
 
@@ -117,36 +120,45 @@ def main():
     # ======================================================
     # Plot
     # ======================================================
-    plt.figure(figsize=(8, 5))  # ← 横幅 8 インチ固定
+    plt.figure(figsize=(8, 5))  # 横幅 8 インチ固定
 
     for model, (T_list, mean_list, std_list) in model_data.items():
-
         if len(T_list) == 0:
             continue
 
-        # bind の値そのものでプロット（横軸の幅は 1〜18 で固定される）
+        # ★ 薄いガイド線（点を結ぶ）
+        plt.plot(
+            T_list,
+            mean_list,
+            color=COLOR_MAP[model],
+            linewidth=1.5,
+            alpha=0.35,
+            zorder=1,
+        )
+
+        # 点＋エラーバー（Wait と同じ見た目）
         plt.errorbar(
             T_list,
             mean_list,
             yerr=std_list,
             fmt="o",
             markersize=6,
-            capsize=4,
+            capsize=3,
+            capthick=2.0,
+            elinewidth=2.0,
             color=COLOR_MAP[model],
-            label=model.upper(),
-            linestyle="none"
+            label=LABEL_MAP[model],   # ★ ここだけ変更
+            linestyle="none",
+            zorder=2,
         )
 
     plt.xlabel("T_bind")
     plt.ylabel("Accuracy")
-    plt.title("T_bind Sweep (points + error bars)")
-    plt.ylim(0, 1.0)
+    plt.title("Effect of Bind Length on Accuracy")
+    plt.ylim(0, 1.03)
+    plt.xlim(1, TBIND_MAX + 1)
 
-    # === ★ 横軸は 1〜TBIND_MAX のまま ===
-    plt.xlim(1, TBIND_MAX+1)
-
-    # === ★ tick は “データがある T_bind のみ” ===
-    tick_T = sorted(set().union(*[model_data[m][0] for m in model_data]))
+    tick_T = sorted(set().union(*[model_data[m][0] for m in model_data if m in model_data]))
     plt.xticks(tick_T, [str(t) for t in tick_T])
 
     plt.grid(True, alpha=0.4)
@@ -158,7 +170,6 @@ def main():
     plt.close()
 
     print(f"[INFO] Saved → {out_path}")
-
 
 if __name__ == "__main__":
     main()

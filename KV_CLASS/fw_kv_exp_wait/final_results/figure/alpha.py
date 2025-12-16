@@ -25,7 +25,7 @@ for a in alpha_fw_list:
 plt.xlim(0, 1); plt.ylim(0, 1)
 plt.xlabel(r"$R=\max\{0,\cos(\mathbf{h},A\mathbf{h})\}$")
 plt.ylabel(r"$\alpha_{\mathrm{dyn}}$")
-plt.title(r"Update strength $\alpha_{\mathrm{dyn}}$ as a function of direction consistency $R$")
+plt.title(r"Dynamic Update Strength $\alpha_{\mathrm{dyn}}$ vs. Directional Consistency $R$")
 plt.grid(True, alpha=0.3)
 plt.legend(fontsize=9)
 plt.tight_layout()

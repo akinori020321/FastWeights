@@ -26,7 +26,7 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 CORE_NAME = {
     "fw": "Ba-FW",
     "tanh": "SC-FW",
-    "rnn": "RNN-LN",
+    "rnn": "RNN+LN",
 }
 
 # --------------------------------------------------
@@ -131,21 +131,23 @@ def plot_h_norm(all_data, color_map):
         color = color_map[sig]
 
         linestyle = "-" if item["correct"] >= 0.5 else "--"
-        lw = 2.2 if item["correct"] >= 0.5 else 1.4
 
         # ★ core 名置換 → ラベル生成
         core_name = CORE_NAME[item["core"]]
-        label = f"{core_name}_S{item['S']}_eta{item['eta']}_lam{item['lam']}_seed{item['seed']}"
+        if item["core"] == "rnn":
+            label = f"{core_name}"
+        else:
+            label = f"{core_name}, S={item['S']}, η={int(item['eta'])/1000.0:g}, λ={int(item['lam'])/1000.0:g}"
 
         plt.plot(df["step"], df["h_norm"],
                  label=label,
                  color=color,
                  linestyle=linestyle,
-                 linewidth=lw)
+                 marker="o")
 
     plt.xlabel("t (step)")
     plt.ylabel("||h_t||")
-    plt.title("h_norm over time")
+    plt.title("Hidden-state norm over time")
     plt.legend(fontsize=8)
     plt.grid(True)
 
@@ -168,21 +170,20 @@ def plot_specA(all_data, color_map):
         color = color_map[sig]
 
         linestyle = "-" if item["correct"] >= 0.5 else "--"
-        lw = 2.2 if item["correct"] >= 0.5 else 1.4
 
         # ★ core 名置換
         core_name = CORE_NAME[item["core"]]
-        label = f"{core_name}_S{item['S']}_eta{item['eta']}_lam{item['lam']}_seed{item['seed']}"
+        label = f"{core_name}, S={item['S']}, η={int(item['eta'])/1000.0:g}, λ={int(item['lam'])/1000.0:g}"
 
         plt.plot(df["step"], df["specA"],
                  label=label,
                  color=color,
                  linestyle=linestyle,
-                 linewidth=lw)
+                 marker="o")
 
     plt.xlabel("t (step)")
-    plt.ylabel("spec(A_t)")
-    plt.title("specA over time")
+    plt.ylabel(r"$\sigma_{\max}(A_t)$")
+    plt.title(r"Largest Singular value of $A_t$ over time")
     plt.legend(fontsize=8)
     plt.grid(True)
 

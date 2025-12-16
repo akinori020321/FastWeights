@@ -28,6 +28,13 @@ COLOR_MAP = {
     "tanh": "green",
 }
 
+# ★ 表示用ラベル（論文用）
+LABEL_MAP = {
+    "rnn":  "RNN+LN",
+    "fw":   "Ba-FW",
+    "tanh": "SC-FW",
+}
+
 # ======================================================
 # ファイル名例：
 # fw0_sigma0.00_S1_seed0_beta1.00_wait6.csv
@@ -43,25 +50,19 @@ PATTERN = re.compile(
 def read_final_acc(path):
     try:
         df = pd.read_csv(path)
-    except:
+    except Exception:
         return None
 
-    # valid_acc があれば優先
     if "valid_acc" in df.columns:
         return float(df["valid_acc"].iloc[-1])
-
-    # acc があれば fallback
     if "acc" in df.columns:
         return float(df["acc"].iloc[-1])
-
     return None
-
 
 # ======================================================
 # 各モデルの wait → acc の dict を作る
 # ======================================================
 def load_model_stats(model_dir):
-    # wait → [acc_seed0, acc_seed1, ...]
     acc_by_W = {}
 
     for fname in os.listdir(model_dir):
@@ -72,14 +73,13 @@ def load_model_stats(model_dir):
         if m is None:
             continue
 
-        W = int(m.group("W"))   # wait
+        W = int(m.group("W"))
         acc = read_final_acc(os.path.join(model_dir, fname))
         if acc is None:
             continue
 
         acc_by_W.setdefault(W, []).append(acc)
 
-    # ソートして返す
     W_list = []
     acc_mean_list = []
     acc_std_list = []
@@ -87,14 +87,13 @@ def load_model_stats(model_dir):
     for W in sorted(acc_by_W.keys()):
         vals = acc_by_W[W]
         W_list.append(W)
-        acc_mean_list.append(np.mean(vals))
-        acc_std_list.append(np.std(vals))
+        acc_mean_list.append(float(np.mean(vals)))
+        acc_std_list.append(float(np.std(vals)))
 
     return W_list, acc_mean_list, acc_std_list
 
-
 # ======================================================
-# メイン：点＋エラーバー
+# メイン：点＋エラーバー + 薄いガイド線
 # ======================================================
 def main():
 
@@ -107,7 +106,6 @@ def main():
     model_data = {}
     any_data = False
 
-    # データ読み込み
     for model, path in model_dirs.items():
         if not os.path.isdir(path):
             print(f"[WARN] Missing model dir: {path}")
@@ -126,36 +124,43 @@ def main():
     # ======================================================
     # Plot
     # ======================================================
-    plt.figure(figsize=(8, 5))  # ← 横幅 8 インチ固定（Tbind と完全一致）
+    plt.figure(figsize=(8, 5))  # Tbind と一致
 
     for model, (W_list, mean_list, std_list) in model_data.items():
-
         if len(W_list) == 0:
             continue
 
-        # seed の平均＋誤差バー(STD)
+        # ★ 薄いガイド線（点を結ぶ）
+        plt.plot(
+            W_list,
+            mean_list,
+            color=COLOR_MAP[model],
+            linewidth=1.5,
+            alpha=0.35,
+            zorder=1,
+        )
+
         plt.errorbar(
             W_list,
             mean_list,
             yerr=std_list,
             fmt="o",
             markersize=6,
-            capsize=4,
+            capsize=3,        # ← capを少し長く
+            capthick=2.0,     # ← cap線を太く
+            elinewidth=2.0,   # ← 誤差バー本体を太く
             color=COLOR_MAP[model],
-            label=model.upper(),
-            linestyle="none"
+            label=LABEL_MAP[model],   # ★ ここだけ変更
+            linestyle="none",
+            zorder=2,
         )
 
     plt.xlabel("Wait")
     plt.ylabel("Accuracy")
-    plt.title("Wait Sweep (points + error bars)")
-    plt.ylim(0, 1.0)
+    plt.title("Effect of Wait Length on Accuracy")
+    plt.ylim(0, 1.03)  # ★ 1.0の上に余白
+    plt.xlim(-1, WAIT_MAX + 1)
 
-    # === ★ 横軸は 1〜WAIT_MAX の幅で固定 ===
-    plt.xlim(-1, WAIT_MAX+1)
-
-    # === ★ 表示する tick は “データがある wait のみ” ===
-    #     → 例： [2, 4, 6, 8, 10, 12, 15, 18]
     tick_W = sorted(set().union(*[model_data[m][0] for m in model_data]))
     plt.xticks(tick_W, [str(w) for w in tick_W])
 
@@ -168,7 +173,6 @@ def main():
     plt.close()
 
     print(f"[INFO] Saved → {out_path}")
-
 
 if __name__ == "__main__":
     main()

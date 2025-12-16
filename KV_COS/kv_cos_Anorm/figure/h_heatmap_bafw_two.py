@@ -215,9 +215,13 @@ def plot_each_core(csv_list, out_dir, out_prefix="kv_dyn_cos"):
 
         draw_single_heatmap(ax, C, kinds, class_ids)
 
-        ax.set_title(f"{core_name}_S{S}_eta{eta}_lam{lam}_seed{seed}", fontsize=11)
-        ax.set_xlabel("t")
-        ax.set_ylabel("t")
+        if core == "rnn":
+            ax.set_title(f"{core_name}", fontsize=11)
+        else:
+            ax.set_title(f"{core_name}, S={S}, η={int(eta)/1000.0:g}, λ={int(lam)/1000.0:g}", fontsize=11)
+
+        ax.set_xlabel("t (step)")
+        ax.set_ylabel("t (step)")
 
         plt.tight_layout()
 
@@ -242,11 +246,14 @@ def main():
 
     csv_fw = sorted(glob.glob(os.path.join(args.dir, "H_kv_fw_*.csv")))
     csv_scfw = sorted(glob.glob(os.path.join(args.dir, "H_kv_tanh_*.csv")))
+    csv_rnn = sorted(glob.glob(os.path.join(args.dir, "H_kv_rnn_*.csv")))
 
     if csv_fw:
         plot_each_core(csv_fw, save_dir, args.out_prefix)
     if csv_scfw:
         plot_each_core(csv_scfw, save_dir, args.out_prefix)
+    if csv_rnn:
+        plot_each_core(csv_rnn, save_dir, args.out_prefix)
 
 
 if __name__ == "__main__":

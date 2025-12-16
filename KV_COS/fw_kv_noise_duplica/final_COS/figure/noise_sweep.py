@@ -28,6 +28,13 @@ COLOR_MAP = {
     "tanh": "green",
 }
 
+# ★ 表示用ラベル（論文用）
+LABEL_MAP = {
+    "rnn":  "RNN+LN",
+    "fw":   "Ba-FW",
+    "tanh": "SC-FW",
+}
+
 # ======================================================
 # ファイル名例：
 # recon_fw_fw0_beta0.0_dup4_sigma0.2_S0_seed0_fw_recon_beta0.00_wait0_dup4.csv
@@ -125,26 +132,38 @@ def main():
         if len(rate_list) == 0:
             continue
 
+        # ★ 薄いガイド線（点を結ぶ）
+        plt.plot(
+            rate_list,
+            mean_list,
+            color=COLOR_MAP[model],
+            linewidth=1.5,
+            alpha=0.35,
+            zorder=1,
+        )
+
         plt.errorbar(
             rate_list,
             mean_list,
             yerr=std_list,
             fmt="o",
             markersize=6,
-            capsize=4,
+            capsize=3,        # ← capを少し長く
+            capthick=2.0,     # ← cap線を太く
+            elinewidth=2.0,   # ← 誤差バー本体を太く
             color=COLOR_MAP[model],
-            label=model.upper(),
-            linestyle="none"
+            label=LABEL_MAP[model],
+            linestyle="none",
+            zorder=2,
         )
 
     plt.xlabel("Clean Rate")
     plt.ylabel("Accuracy (cosine)")
-    plt.title("Noise Sweep (points + error bars)")
-    plt.ylim(0, 1.0)
+    plt.title("Effect of Clean Rate on Accuracy")
+    plt.ylim(0, 1.03)  # ★ 1.0の上に余白
 
     # ★ 横軸は固定レンジ（1.0 → 0.2）
     plt.xlim(1.03, 0.17)
-
 
     # ★ tick は実際にある sigma のみ
     tick_vals = sorted(
