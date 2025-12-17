@@ -218,6 +218,15 @@ def main():
     print(f"[Info] num_classes={num_classes}, num_keys={num_keys}")
 
     # --------------------------------------------------
+    # ★ Clean CSV 保存先（args.out_csv と同じディレクトリに毎回上書き）
+    # --------------------------------------------------
+    out_dir = os.path.dirname(args.out_csv)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    clean_csv = args.out_csv.replace("A_kv_", "Clean_kv_")
+
+    # --------------------------------------------------
     # KV sequence（Direction Task）
     # --------------------------------------------------
     z_seq, event_list, clean_target = make_keyvalue_sequence_direction(
@@ -234,7 +243,9 @@ def main():
         query_noise_std=0.0,
         num_wait=args.num_wait,
         wait_vec=wait_vec,
+        clean_csv_path=clean_csv,   # ★追加：clean を毎回保存（上書き）
     )
+    print(f"[DONE] Saved Clean CSV → {clean_csv}")
 
     T_total = z_seq.size(0)
     print(f"[Info] Sequence generated: T={T_total}, B={args.batch_size}")
