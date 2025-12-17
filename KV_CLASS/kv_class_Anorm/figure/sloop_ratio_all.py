@@ -1,230 +1,235 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-plot_Akv.py
-----------------------------------------
-A-dynamics 実験結果をプロットするツール（色自動生成＋線種＝正誤対応）
+S-loop ratio over time (SC-FW vs Ba-FW)
+---------------------------------------
+- ../results_A_kv/ 以下の SloopVec_kv_*.csv と Amat_kv_*.csv を読む
+- 各モデルについて、各時刻 t で
+      ratio(t) = ||A_t h_t^{(last input)}||_2 / ||h_t^{base}||_2
+  を計算
+- SC-FW(core=fw) と Ba-FW(core=tanh) を 2 行サブプロットで別々に描画
+
+出力:
+  plots/sloop_all/ratio_over_time.png
 """
 
 import os
+import re
 import glob
+import argparse
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import re
-import colorsys
+
 
 # --------------------------------------------------
-# ディレクトリ設定
+# SloopVec ファイル名パーサ（rnn 対応）
 # --------------------------------------------------
-RESULT_DIR = "../results_A_kv"
-SAVE_DIR = "plots/figure_norm"
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# --------------------------------------------------
-# core 名表示変換
-# --------------------------------------------------
-CORE_NAME = {
-    "fw": "Ba-FW",
-    "tanh": "SC-FW",
-    "rnn": "RNN-LN",
-}
-
-# --------------------------------------------------
-# CSV 探索
-# --------------------------------------------------
-def scan_all_csv():
-    files = sorted(glob.glob(os.path.join(RESULT_DIR, "A_kv_*.csv")))
-    print(f"[INFO] Found {len(files)} A-dynamics files.")
-    return files
-
-# --------------------------------------------------
-# Query CSV correct を取得
-# --------------------------------------------------
-def load_correct(csv_path):
-    query_csv = csv_path.replace("A_kv_", "Query_kv_")
-    if not os.path.exists(query_csv):
-        print(f"[WARN] Query CSV not found: {query_csv}")
-        return None
-
-    df = pd.read_csv(query_csv)
-    return float(df["correct"].iloc[0])
-
-# --------------------------------------------------
-# ファイル名パーサー
-# --------------------------------------------------
-def parse_core_S(filename):
-    base = os.path.basename(filename)
-
-    pattern = r"A_kv_(fw|tanh|rnn)_S([0-9]+)_eta([0-9]+)_lam([0-9]+)_seed([0-9]+)"
+def parse_sloop_filename(fname):
+    base = os.path.basename(fname)
+    pattern = (
+        r"SloopVec_kv_(fw|tanh|rnn)_S(\d+)"
+        r"(?:_noise([0-9]+))?"
+        r"_eta([0-9]+)_lam([0-9]+)_seed(\d+)"
+        r"\.csv$"
+    )
     m = re.match(pattern, base)
 
     if m is None:
-        raise ValueError(f"Filename does not match new A_kv_ pattern: {base}")
+        raise ValueError(f"Filename does not match pattern: {base}")
 
     core = m.group(1)
     S = int(m.group(2))
-    eta = m.group(3)
-    lam = m.group(4)
-    seed = m.group(5)
+    noise = m.group(3)
+    eta = m.group(4)
+    lam = m.group(5)
+    seed = m.group(6)
 
-    return core, S, eta, lam, seed
+    noise_str = f"_noise{noise}" if noise is not None else ""
+    model_id = f"{core}_S{S}{noise_str}_eta{eta}_lam{lam}_seed{seed}"
+    return core, S, eta, lam, seed, model_id
 
-# --------------------------------------------------
-# ★ signature（パラメータが1つでも違えば別物）
-# --------------------------------------------------
-def make_signature(item):
-    return f"{item['core']}_S{item['S']}_eta{item['eta']}_lam{item['lam']}_seed{item['seed']}"
 
 # --------------------------------------------------
-# ★ 色生成：色相固定、明度変化で複数色を生成
+# Amat ファイル名パーサ（fw / tanh のみ）
 # --------------------------------------------------
-def generate_colors(base_hue, n):
-    colors = []
-    for i in range(n):
-        l = 0.30 + 0.55 * (i / max(1, n - 1))
-        s = 0.95
-        r, g, b = colorsys.hls_to_rgb(base_hue, l, s)
-        colors.append('#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255)))
-    return colors
+def parse_amat_filename(fname):
+    base = os.path.basename(fname)
+    pattern = (
+        r"Amat_kv_(fw|tanh)_S(\d+)"
+        r"(?:_noise([0-9]+))?"
+        r"_eta([0-9]+)_lam([0-9]+)_seed(\d+)"
+        r"\.csv$"
+    )
+    m = re.match(pattern, base)
+    if m is None:
+        return None
+
+    core = m.group(1)
+    S = int(m.group(2))
+    noise = m.group(3)
+    eta = m.group(4)
+    lam = m.group(5)
+    seed = m.group(6)
+
+    noise_str = f"_noise{noise}" if noise is not None else ""
+    model_id = f"{core}_S{S}{noise_str}_eta{eta}_lam{lam}_seed{seed}"
+    return core, S, eta, lam, seed, model_id
+
 
 # --------------------------------------------------
-# ★ signature ごとに色を割り当てる
+# A 行列を読み込む
 # --------------------------------------------------
-def assign_colors(all_data):
+def load_A(csv_path):
+    df = pd.read_csv(csv_path)
 
-    groups = {"fw": [], "tanh": [], "rnn": []}
+    A_list = []
+    for _, row in df.iterrows():
+        vals = row.values.astype(float)
 
-    for item in all_data:
-        sig = make_signature(item)
-        groups[item["core"]].append(sig)
+        if int(np.sqrt(vals.shape[0] - 1)) ** 2 == vals.shape[0] - 1:
+            vals = vals[1:]
 
-    for c in groups:
-        groups[c] = sorted(list(set(groups[c])))
+        L = vals.shape[0]
+        d = int(np.sqrt(L))
+        if d * d != L:
+            raise ValueError(f"A row size {L} cannot form square")
 
-    color_map = {}
+        A_list.append(vals.reshape(d, d))
 
-    for core, sigs in groups.items():
+    return A_list
 
-        if core == "fw":
-            base_hue = 0.0    # 赤
-        elif core == "tanh":
-            base_hue = 0.60   # 青
+
+# --------------------------------------------------
+# ratio(t) 計算
+# --------------------------------------------------
+def compute_ratio_curve(sloop_csv, amat_csv):
+    df = pd.read_csv(sloop_csv)
+    A_list = load_A(amat_csv)
+
+    groups = df.groupby("t")
+    t_list, ratio_list = [], []
+
+    for t, g in groups:
+        t = int(t)
+
+        base_rows = g[g["s"] == -1]
+        if len(base_rows) == 0:
+            continue
+
+        base_h = base_rows.iloc[0].filter(regex=r"h\[").values.astype(float)
+        norm_base = np.linalg.norm(base_h) + 1e-8
+
+        if t >= len(A_list):
+            continue
+        A = A_list[t]
+
+        loop_rows = g[g["s"] >= 0].sort_values("s")
+        if len(loop_rows) == 0:
+            continue
+        elif len(loop_rows) == 1:
+            target_row = loop_rows.iloc[0]
         else:
-            base_hue = 0.33   # 緑
+            target_row = loop_rows.iloc[-2]
 
-        palette = generate_colors(base_hue, len(sigs))
+        h_target = target_row.filter(regex=r"h\[").values.astype(float)
+        Ah = A @ h_target
+        ratio = np.linalg.norm(Ah) / norm_base
 
-        for sig, col in zip(sigs, palette):
-            color_map[sig] = col
+        t_list.append(t)
+        ratio_list.append(ratio)
 
-    return color_map
+    t_arr = np.array(t_list)
+    ratio_arr = np.array(ratio_list)
+    order = np.argsort(t_arr)
+    return t_arr[order], ratio_arr[order]
 
-# --------------------------------------------------
-# h_norm plot → ★線種は正誤で決定
-# --------------------------------------------------
-def plot_h_norm(all_data, color_map):
-    plt.figure(figsize=(11, 7))
-
-    for item in all_data:
-        df = item["df"]
-        sig = make_signature(item)
-        color = color_map[sig]
-
-        linestyle = "-" if item["correct"] >= 0.5 else "--"
-        lw = 1.5
-
-        # ★ core 名置換 → ラベル生成
-        core_name = CORE_NAME[item["core"]]
-        label = f"{core_name}, S={item['S']}, η={int(item['eta'])/1000.0:g}, λ={int(item['lam'])/1000.0:g}"
-
-        plt.plot(df["step"], df["h_norm"],
-                 label=label,
-                 color=color,
-                 linestyle=linestyle,
-                 linewidth=lw,
-                 marker="o",
-                 markersize=6.0)
-
-    plt.xlabel("t (step)")
-    plt.ylabel("||h_t||")
-    plt.title("||h_t|| over time")
-    plt.legend(fontsize=8)
-    plt.grid(True)
-
-    save_path = os.path.join(SAVE_DIR, "h_norm_all.png")
-    plt.savefig(save_path, dpi=200)
-    print(f"[SAVE] {save_path}")
-
-# --------------------------------------------------
-# specA plot（RNN の線は描かない）
-# --------------------------------------------------
-def plot_specA(all_data, color_map):
-    plt.figure(figsize=(11, 7))
-
-    for item in all_data:
-        if item["core"] == "rnn":
-            continue  # A=0 のためスキップ
-
-        df = item["df"]
-        sig = make_signature(item)
-        color = color_map[sig]
-
-        linestyle = "-" if item["correct"] >= 0.5 else "--"
-        lw = 1.5
-
-        # ★ core 名置換
-        core_name = CORE_NAME[item["core"]]
-        label = f"{core_name}, S={item['S']}, η={int(item['eta'])/1000.0:g}, λ={int(item['lam'])/1000.0:g}"
-
-        plt.plot(df["step"], df["specA"],
-                 label=label,
-                 color=color,
-                 linestyle=linestyle,
-                 linewidth=lw,
-                 marker="o",
-                 markersize=6.0)
-
-    plt.xlabel("t (step)")
-    plt.ylabel("spec(A_t)")
-    plt.title("spec(A_t) over time")
-    plt.legend(fontsize=8)
-    plt.grid(True)
-
-    save_path = os.path.join(SAVE_DIR, "specA_all.png")
-    plt.savefig(save_path, dpi=200)
-    print(f"[SAVE] {save_path}")
 
 # --------------------------------------------------
 # main
 # --------------------------------------------------
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", type=str, default="../results_A_kv")
+    args = ap.parse_args()
 
-    csv_files = scan_all_csv()
-    all_data = []
+    sloop_list = sorted(glob.glob(os.path.join(args.dir, "SloopVec_kv_*.csv")))
+    amat_list = sorted(glob.glob(os.path.join(args.dir, "Amat_kv_*.csv")))
 
-    for csv_path in csv_files:
-        df = pd.read_csv(csv_path)
-        core, S, eta, lam, seed = parse_core_S(csv_path)
-        correct = load_correct(csv_path) or 0.0
+    if len(sloop_list) == 0 or len(amat_list) == 0:
+        print("[ERROR] Required CSV files not found.")
+        return
 
-        all_data.append({
-            "df": df,
-            "core": core,
-            "S": S,
-            "eta": eta,
-            "lam": lam,
-            "seed": seed,
-            "correct": correct,
-        })
+    amat_map = {}
+    for a_csv in amat_list:
+        parsed = parse_amat_filename(a_csv)
+        if parsed is None:
+            continue
+        _, _, _, _, _, model_id = parsed
+        amat_map[model_id] = a_csv
 
-        print(f"[LOAD] {csv_path} | core={core} | S={S} | eta={eta} | lam={lam} | seed={seed} | correct={correct}")
+    out_dir = "plots/sloop_all"
+    os.makedirs(out_dir, exist_ok=True)
 
-    color_map = assign_colors(all_data)
+    curves_sc, curves_ba = [], []
 
-    plot_h_norm(all_data, color_map)
-    plot_specA(all_data, color_map)
+    for s_csv in sloop_list:
+        core, S, eta, lam, seed, model_id = parse_sloop_filename(s_csv)
 
-    print("[DONE] All plots generated.")
+        # ★ rnn は A が無いのでスキップ
+        if core == "rnn":
+            print(f"[SKIP] rnn has no A-matrix: {os.path.basename(s_csv)}")
+            continue
+
+        if model_id not in amat_map:
+            print(f"[WARN] Amat not found for {model_id}, skip.")
+            continue
+
+        print(f"[PROCESS] {model_id}")
+        t_arr, ratio_arr = compute_ratio_curve(s_csv, amat_map[model_id])
+
+        if core == "fw":
+            curves_sc.append((t_arr, ratio_arr, f"SC-FW_S{S}_eta{eta}_lam{lam}_seed{seed}"))
+        elif core == "tanh":
+            curves_ba.append((t_arr, ratio_arr, f"Ba-FW_S{S}_eta{eta}_lam{lam}_seed{seed}"))
+
+    if len(curves_sc) == 0 and len(curves_ba) == 0:
+        print("[ERROR] No valid curves to plot.")
+        return
+
+    if len(curves_sc) > 0 and len(curves_ba) > 0:
+        fig, (ax_sc, ax_ba) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
+
+        for t, r, lab in curves_sc:
+            ax_sc.plot(t, r, marker="o", label=lab)
+        ax_sc.axhline(1.0, color="gray", linestyle="--")
+        ax_sc.set_title("SC-FW")
+        ax_sc.grid(True)
+        ax_sc.legend()
+
+        for t, r, lab in curves_ba:
+            ax_ba.plot(t, r, marker="o", label=lab)
+        ax_ba.axhline(1.0, color="gray", linestyle="--")
+        ax_ba.set_title("Ba-FW")
+        ax_ba.grid(True)
+        ax_ba.legend()
+
+    else:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+        curves = curves_sc if len(curves_sc) > 0 else curves_ba
+        for t, r, lab in curves:
+            ax.plot(t, r, marker="o", label=lab)
+        ax.axhline(1.0, color="gray", linestyle="--")
+        ax.grid(True)
+        ax.legend()
+
+    plt.tight_layout()
+    save_path = os.path.join(out_dir, "ratio_over_time.png")
+    plt.savefig(save_path)
+    plt.close()
+
+    print(f"[DONE] Saved plot → {save_path}")
+
 
 if __name__ == "__main__":
     main()
