@@ -198,14 +198,7 @@ def main():
         return
 
     if len(curves_sc) > 0 and len(curves_ba) > 0:
-        fig, (ax_sc, ax_ba) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
-
-        for t, r, lab in curves_sc:
-            ax_sc.plot(t, r, marker="o", label=lab)
-        ax_sc.axhline(1.0, color="gray", linestyle="--")
-        ax_sc.set_title("SC-FW")
-        ax_sc.grid(True)
-        ax_sc.legend()
+        fig, (ax_ba, ax_sc) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
 
         for t, r, lab in curves_ba:
             ax_ba.plot(t, r, marker="o", label=lab)
@@ -213,6 +206,13 @@ def main():
         ax_ba.set_title("Ba-FW")
         ax_ba.grid(True)
         ax_ba.legend()
+
+        for t, r, lab in curves_sc:
+            ax_sc.plot(t, r, marker="o", label=lab)
+        ax_sc.axhline(1.0, color="gray", linestyle="--")
+        ax_sc.set_title("SC-FW")
+        ax_sc.grid(True)
+        ax_sc.legend()
 
     else:
         fig, ax = plt.subplots(1, 1, figsize=(8, 4))
