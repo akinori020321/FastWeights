@@ -142,3 +142,17 @@ python3 h_heatmap_bafw_two.py
 echo "==============================================="
 echo "[STEP 7 DONE]"
 echo "==============================================="
+
+#############################################
+# 8. Head→Clean class-wise heatmap 可視化（plot_head_clean_heatmap.py）
+#############################################
+echo "==============================================="
+echo "[STEP 8] Plot head-clean class-wise heatmaps (plot_head_clean_heatmap.py)"
+echo "==============================================="
+
+python3 plot_head_clean_heatmap.py
+
+echo "==============================================="
+echo "[STEP 8 DONE]"
+echo "==============================================="
+
