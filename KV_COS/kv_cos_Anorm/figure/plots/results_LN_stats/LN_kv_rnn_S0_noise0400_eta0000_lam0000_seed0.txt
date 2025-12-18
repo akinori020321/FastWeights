@@ -1,0 +1,15 @@
+[Info] Loading checkpoint: ../checkpoints/kv_rnn_S0_noise0400_eta0000_lam0000_seed0.pt
+[Info] Found 2 LayerNorm parameters.
+
+ln_h.bias
+  shape : (60,)
+  mean  : -0.055017, std: 0.387504
+  min   : -2.539029, max: 0.444254
+  #pos  : 15, #neg: 45, #zero: 0
+
+ln_h.weight
+  shape : (60,)
+  mean  : 0.334840, std: 0.622230
+  min   : -0.048227, max: 2.649930
+  #pos  : 54, #neg: 6, #zero: 0
+
