@@ -267,6 +267,8 @@ def plot_each_csv(csv_list, out_dir):
         out_png = parse_outname(csv_path)
         out_path = os.path.join(out_dir, out_png)
         plt.savefig(out_path, dpi=200)
+        out_eps = os.path.splitext(out_path)[0] + ".eps"
+        plt.savefig(out_eps)
         plt.close()
         print(f"[SAVED] {out_path}")
 

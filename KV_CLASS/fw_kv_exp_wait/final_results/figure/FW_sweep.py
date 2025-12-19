@@ -123,6 +123,7 @@ def process_s_dir(s_path):
     outname = f"heatmap_S{S_value}.png"
     outpath = os.path.join(OUT_DIR, outname)
     plt.savefig(outpath, dpi=200, bbox_inches="tight")
+    plt.savefig(outpath[:-4] + ".eps", dpi=200, bbox_inches="tight")
     plt.close()
 
     print(f"[INFO] Saved → {outpath}")

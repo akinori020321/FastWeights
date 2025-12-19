@@ -125,6 +125,7 @@ def plot_pca_subplots(csv_list, out_png="h_pca_timeseries_color.png"):
     os.makedirs("plots/h_pca", exist_ok=True)
     out_path = os.path.join("plots/h_pca", out_png)
     plt.savefig(out_path, dpi=200)
+    plt.savefig(out_path[:-4] + ".eps", dpi=200)
     print(f"[SAVED] {out_path}")
 
 

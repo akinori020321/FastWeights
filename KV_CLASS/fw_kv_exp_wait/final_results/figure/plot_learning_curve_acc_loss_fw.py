@@ -8,7 +8,9 @@ plot_learning_curve_acc_loss_fw.py
 - seedごとの val_acc / val_loss を読み込み
 - epochごとに mean±std を計算して
   上: Acc, 下: Loss の2段で描画
-- eps/pdf 保存
+- ★各seedの曲線も重ね描き（seed感度の可視化）
+- ★mean/±stdは背景（目立たせない）
+- FW_bind4_fig/ に png + eps を保存
 """
 
 import os
@@ -25,7 +27,7 @@ import matplotlib.pyplot as plt
 # ======================================================
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 CSV_DIR  = os.path.join(THIS_DIR, "..", "T_bind", "results_Tbind_fw4")
-OUT_DIR  = os.path.join(THIS_DIR, "fig")
+OUT_DIR  = os.path.join(THIS_DIR, "FW_bind4_fig")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
@@ -37,7 +39,9 @@ def pick_col(df: pd.DataFrame, candidates, kind: str):
     for cand in candidates:
         if cand.lower() in cols:
             return cols[cand.lower()]
-    raise ValueError(f"[Error] {kind} column not found. candidates={candidates}, available={list(df.columns)}")
+    raise ValueError(
+        f"[Error] {kind} column not found. candidates={candidates}, available={list(df.columns)}"
+    )
 
 
 def load_one_csv(path: str):
@@ -89,7 +93,9 @@ def aggregate(files):
     loss_std  = loss_df.std(axis=1, ddof=0, skipna=True).to_numpy()
 
     epochs = acc_df.index.to_numpy(dtype=float)
-    return epochs, acc_mean, acc_std, loss_mean, loss_std
+
+    # ★seed曲線も返す（重ね描き用）
+    return epochs, acc_mean, acc_std, loss_mean, loss_std, acc_df, loss_df
 
 
 def moving_average(y, w: int):
@@ -102,8 +108,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pattern", default="fw_fw1_T4_S1_seed*_beta1.00_wait2.csv")
     ap.add_argument("--smooth", type=int, default=1, help="moving average window (default 1)")
-    ap.add_argument("--out", default=os.path.join(OUT_DIR, "learning_curve_acc_loss_fw_T4_wait2_beta1.00.eps"))
-    ap.add_argument("--title", default="")  # 必要なら
+    # ★ 拡張子なしの出力プレフィックス
+    ap.add_argument(
+        "--out_prefix",
+        default=os.path.join(OUT_DIR, "learning_curve_acc_loss_fw_T4_wait2_beta1.00"),
+        help="output prefix (no extension). saves .png and .eps"
+    )
+    ap.add_argument("--title", default="")
     args = ap.parse_args()
 
     glob_pat = os.path.join(CSV_DIR, args.pattern)
@@ -112,7 +123,7 @@ def main():
     if len(files) == 0:
         raise FileNotFoundError(f"No files matched: {glob_pat}")
 
-    epochs, acc_m, acc_s, loss_m, loss_s = aggregate(files)
+    epochs, acc_m, acc_s, loss_m, loss_s, acc_df, loss_df = aggregate(files)
 
     # smoothing（meanだけに適用）
     acc_m_s  = moving_average(acc_m, args.smooth)
@@ -121,17 +132,60 @@ def main():
     # ===== plot =====
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8.6, 6.2), sharex=True)
 
+    # 見た目パラメータ（seedを主役、mean/stdは背景）
+    SEED_LW = 1.4
+    SEED_ALPHA = 0.55
+    MEAN_LW = 1.6
+    BAND_ALPHA = 0.08
+
+    # ----------------------
     # Acc
-    ax1.plot(epochs, acc_m_s, linewidth=1.8, label="FW (mean)")
-    ax1.fill_between(epochs, acc_m - acc_s, acc_m + acc_s, alpha=0.18, label="±1 std")
+    # ----------------------
+    # ±1std band（背景）
+    ax1.fill_between(
+        epochs, acc_m - acc_s, acc_m + acc_s,
+        alpha=BAND_ALPHA, zorder=1, label="±1 std"
+    )
+
+    # seed 曲線（主役）
+    for col in acc_df.columns:
+        ax1.plot(
+            acc_df.index.values, acc_df[col].values,
+            linewidth=SEED_LW, alpha=SEED_ALPHA, zorder=2
+        )
+
+    # mean（ガイド：黒破線）
+    ax1.plot(
+        epochs, acc_m_s,
+        color="black", linestyle="--", linewidth=MEAN_LW,
+        zorder=3, label="mean"
+    )
+
     ax1.set_ylabel("Validation Acc")
     ax1.set_ylim(0.0, 1.0)
     ax1.grid(True, alpha=0.25)
     ax1.legend(loc="lower right", frameon=True)
 
+    # ----------------------
     # Loss
-    ax2.plot(epochs, loss_m_s, linewidth=1.8, label="FW (mean)")
-    ax2.fill_between(epochs, loss_m - loss_s, loss_m + loss_s, alpha=0.18, label="±1 std")
+    # ----------------------
+    ax2.fill_between(
+        epochs, loss_m - loss_s, loss_m + loss_s,
+        alpha=BAND_ALPHA, zorder=1, label="±1 std"
+    )
+
+    for col in loss_df.columns:
+        ax2.plot(
+            loss_df.index.values, loss_df[col].values,
+            linewidth=SEED_LW, alpha=SEED_ALPHA, zorder=2
+        )
+
+    ax2.plot(
+        epochs, loss_m_s,
+        color="black", linestyle="--", linewidth=MEAN_LW,
+        zorder=3, label="mean"
+    )
+
     ax2.set_xlabel("Epoch")
     ax2.set_ylabel("Validation Loss (CE)")
     ax2.grid(True, alpha=0.25)
@@ -141,15 +195,20 @@ def main():
 
     fig.tight_layout()
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    fig.savefig(args.out, bbox_inches="tight")
+    # ===== save both =====
+    out_dir = os.path.dirname(args.out_prefix)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
 
-    # epsならpdfも併産
-    if args.out.lower().endswith(".eps"):
-        fig.savefig(args.out[:-4] + ".pdf", bbox_inches="tight")
+    out_png = args.out_prefix + ".png"
+    out_eps = args.out_prefix + ".eps"
+
+    fig.savefig(out_png, bbox_inches="tight", dpi=300)
+    fig.savefig(out_eps, bbox_inches="tight")
 
     print(f"[OK] matched {len(files)} files")
-    print(f"[Saved] {args.out}")
+    print(f"[Saved] {out_png}")
+    print(f"[Saved] {out_eps}")
 
 
 if __name__ == "__main__":

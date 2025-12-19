@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -29,5 +30,7 @@ plt.title(r"Dynamic Update Strength $\alpha_{\mathrm{dyn}}$ vs. Directional Cons
 plt.grid(True, alpha=0.3)
 plt.legend(fontsize=9)
 plt.tight_layout()
-plt.savefig("alpha_dyn_vs_r.png", dpi=200)
-plt.show()
+os.makedirs("alpha_fig", exist_ok=True)
+plt.savefig(os.path.join("alpha_fig", "alpha_dyn_vs_r.png"), dpi=200)
+plt.savefig(os.path.join("alpha_fig", "alpha_dyn_vs_r.eps"))
+plt.close()

@@ -12,6 +12,7 @@ Checkpoint (.pt) から LayerNorm の gamma(weight) / beta(bias) を取り出し
 
 from __future__ import annotations
 import argparse
+import os
 import torch
 
 
@@ -82,6 +83,33 @@ def main() -> None:
 
     for name, tensor in ln_items:
         summarize_param(name, tensor)
+
+    import matplotlib.pyplot as plt
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        print(f"[Info] Loading checkpoint: {args.ckpt}")
+        print(f"[Info] Found {len(ln_items)} LayerNorm parameters.\n")
+        for name, tensor in ln_items:
+            summarize_param(name, tensor)
+    text = buf.getvalue()
+
+    plt.figure(figsize=(12, max(2.0, 0.24 * len(text.splitlines()) + 1.0)))
+    plt.axis("off")
+    plt.text(
+        0.01, 0.99, text,
+        va="top", ha="left",
+        family="monospace",
+        fontsize=10,
+        transform=plt.gca().transAxes,
+    )
+
+    out_dir = os.path.dirname(os.path.abspath(args.ckpt))
+    out_eps = os.path.join(out_dir, "LN_summary.eps")
+    plt.savefig(out_eps, bbox_inches="tight")
+    plt.close()
 
 
 if __name__ == "__main__":

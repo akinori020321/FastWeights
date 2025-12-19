@@ -182,6 +182,10 @@ def plot_h_norm(all_data, color_map, thresh=0.8):
     plt.savefig(save_path, dpi=200)
     print(f"[SAVE] {save_path}")
 
+    save_path = os.path.join(SAVE_DIR, "h_norm_all.eps")
+    plt.savefig(save_path, format="eps")
+    print(f"[SAVE] {save_path}")
+
 # --------------------------------------------------
 # specA plot（RNN の線は描かない）
 # --------------------------------------------------
@@ -217,6 +221,10 @@ def plot_specA(all_data, color_map, thresh=0.8):
 
     save_path = os.path.join(SAVE_DIR, "specA_all.png")
     plt.savefig(save_path, dpi=200)
+    print(f"[SAVE] {save_path}")
+
+    save_path = os.path.join(SAVE_DIR, "specA_all.eps")
+    plt.savefig(save_path, format="eps")
     print(f"[SAVE] {save_path}")
 
 # --------------------------------------------------

@@ -114,6 +114,8 @@ def save_cosine_heatmap(
             ax.axvline(b - 0.5)
 
     plt.savefig(path, dpi=200, bbox_inches="tight")
+    path_eps = os.path.splitext(path)[0] + ".eps"
+    plt.savefig(path_eps, bbox_inches="tight")
     plt.close()
 
 def save_hist(x: np.ndarray, path: str, title: str = ""):
@@ -126,6 +128,8 @@ def save_hist(x: np.ndarray, path: str, title: str = ""):
     plt.xlabel("cosine similarity (i≠j)")
     plt.ylabel("count")
     plt.savefig(path, dpi=200, bbox_inches="tight")
+    path_eps = os.path.splitext(path)[0] + ".eps"
+    plt.savefig(path_eps, bbox_inches="tight")
     plt.close()
 
 

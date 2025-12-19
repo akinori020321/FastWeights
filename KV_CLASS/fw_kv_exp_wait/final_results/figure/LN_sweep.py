@@ -136,6 +136,7 @@ def main():
 
     out_path = os.path.join(OUT_DIR, "ln_sweep_acc.png")
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.savefig(out_path[:-4] + ".eps", dpi=200, bbox_inches="tight")
     plt.close()
 
     print(f"[INFO] Saved → {out_path}")

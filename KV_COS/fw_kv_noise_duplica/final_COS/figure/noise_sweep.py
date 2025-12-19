@@ -178,9 +178,12 @@ def main():
 
     out_path = os.path.join(OUT_DIR, "clean_rate_sweep.png")
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    out_path_eps = os.path.join(OUT_DIR, "clean_rate_sweep.eps")
+    plt.savefig(out_path_eps, bbox_inches="tight")
     plt.close()
 
     print(f"[INFO] Saved → {out_path}")
+    print(f"[INFO] Saved → {out_path_eps}")
 
 
 if __name__ == "__main__":

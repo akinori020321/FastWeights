@@ -153,6 +153,7 @@ def plot_h_norm(all_data, color_map):
 
     save_path = os.path.join(SAVE_DIR, "h_norm_all.png")
     plt.savefig(save_path, dpi=200)
+    plt.savefig(save_path[:-4] + ".eps")
     print(f"[SAVE] {save_path}")
 
 # --------------------------------------------------
@@ -189,6 +190,7 @@ def plot_specA(all_data, color_map):
 
     save_path = os.path.join(SAVE_DIR, "specA_all.png")
     plt.savefig(save_path, dpi=200)
+    plt.savefig(save_path[:-4] + ".eps")
     print(f"[SAVE] {save_path}")
 
 # --------------------------------------------------

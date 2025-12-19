@@ -226,6 +226,7 @@ def main():
     plt.tight_layout()
     save_path = os.path.join(out_dir, "ratio_over_time.png")
     plt.savefig(save_path)
+    plt.savefig(os.path.join(out_dir, "ratio_over_time.eps"), format="eps")
     plt.close()
 
     print(f"[DONE] Saved plot → {save_path}")

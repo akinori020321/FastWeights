@@ -347,8 +347,11 @@ def plot_time_class_heatmap(S_tc: np.ndarray, classes, row_kinds, row_cids, titl
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
-    plt.close()
     print(f"[SAVE] {out_path}")
+    out_path_eps = os.path.splitext(out_path)[0] + ".eps"
+    plt.savefig(out_path_eps, format="eps")
+    print(f"[SAVE] {out_path_eps}")
+    plt.close()
 
 
 def plot_query_bar(S_tc: np.ndarray, classes, row_kinds, title: str, out_path: str):
@@ -386,6 +389,9 @@ def plot_query_bar(S_tc: np.ndarray, classes, row_kinds, title: str, out_path: s
     plt.savefig(out_path, dpi=200)
     plt.close()
     print(f"[SAVE] {out_path}")
+    out_path_eps = os.path.splitext(out_path)[0] + ".eps"
+    plt.savefig(out_path_eps, format="eps")
+    print(f"[SAVE] {out_path_eps}")
 
 
 def plot_margin_curve(S_tc: np.ndarray, classes, row_cids, row_kinds, title: str, out_path: str):
@@ -433,6 +439,9 @@ def plot_margin_curve(S_tc: np.ndarray, classes, row_cids, row_kinds, title: str
     plt.savefig(out_path, dpi=200)
     plt.close()
     print(f"[SAVE] {out_path}")
+    out_path_eps = os.path.splitext(out_path)[0] + ".eps"
+    plt.savefig(out_path_eps, format="eps")
+    print(f"[SAVE] {out_path_eps}")
 
 
 # ============================================================

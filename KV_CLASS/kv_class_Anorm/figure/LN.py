@@ -13,6 +13,9 @@ Checkpoint (.pt) から LayerNorm の gamma(weight) / beta(bias) を取り出し
 from __future__ import annotations
 import argparse
 import torch
+import io
+from contextlib import redirect_stdout
+import os
 
 
 def is_ln_param(name: str) -> bool:
@@ -56,32 +59,54 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    print(f"[Info] Loading checkpoint: {args.ckpt}")
-    state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+    out_dir = os.path.dirname(os.path.abspath(args.ckpt))
 
-    # run.py / run_A_kv.py と同様の形式を想定:
-    #   state["model_state"] に sd が入っている
-    if isinstance(state, dict) and "model_state" in state:
-        raw_sd = state["model_state"]
-    else:
-        # 念のため、直接 state_dict が入っているケースにも対応
-        raw_sd = state
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        print(f"[Info] Loading checkpoint: {args.ckpt}")
+        state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
 
-    # torch.compile で付く "_orig_mod." 接頭辞を削除
-    sd = {k.replace("_orig_mod.", ""): v for k, v in raw_sd.items()}
+        # run.py / run_A_kv.py と同様の形式を想定:
+        #   state["model_state"] に sd が入っている
+        if isinstance(state, dict) and "model_state" in state:
+            raw_sd = state["model_state"]
+        else:
+            # 念のため、直接 state_dict が入っているケースにも対応
+            raw_sd = state
 
-    # LayerNorm パラメータだけ抽出
-    ln_items = [(k, v) for k, v in sd.items() if is_ln_param(k)]
-    ln_items.sort(key=lambda kv: kv[0])
+        # torch.compile で付く "_orig_mod." 接頭辞を削除
+        sd = {k.replace("_orig_mod.", ""): v for k, v in raw_sd.items()}
 
-    if not ln_items:
-        print("[WARN] 'ln' / 'layernorm' を含む weight / bias が見つかりませんでした。")
-        return
+        # LayerNorm パラメータだけ抽出
+        ln_items = [(k, v) for k, v in sd.items() if is_ln_param(k)]
+        ln_items.sort(key=lambda kv: kv[0])
 
-    print(f"[Info] Found {len(ln_items)} LayerNorm parameters.\n")
+        if not ln_items:
+            print("[WARN] 'ln' / 'layernorm' を含む weight / bias が見つかりませんでした。")
+            text = buf.getvalue()
+        else:
+            print(f"[Info] Found {len(ln_items)} LayerNorm parameters.\n")
 
-    for name, tensor in ln_items:
-        summarize_param(name, tensor)
+            for name, tensor in ln_items:
+                summarize_param(name, tensor)
+
+            text = buf.getvalue()
+
+    print(text, end="")
+
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(12, max(2.0, 0.24 * len(text.splitlines()) + 1.0)))
+    plt.axis("off")
+    plt.text(
+        0.01, 0.99, text,
+        va="top", ha="left",
+        family="monospace",
+        fontsize=10,
+        transform=plt.gca().transAxes,
+    )
+    plt.savefig(os.path.join(out_dir, "LN_summary.eps"), bbox_inches="tight")
+    plt.close()
 
 
 if __name__ == "__main__":

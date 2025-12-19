@@ -187,6 +187,7 @@ def plot_each_core(csv_list, out_dir, out_prefix="kv_dyn_cos"):
         fname = f"{out_prefix}_{core_prefix}_S{S}_eta{eta}_lam{lam}_seed{seed}.png"
         out_path = os.path.join(out_dir, fname)
         plt.savefig(out_path, dpi=200)
+        plt.savefig(out_path[:-4] + ".eps", dpi=200)
         plt.close()
         print(f"[SAVE] {out_path}")
 

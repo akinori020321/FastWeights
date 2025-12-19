@@ -167,6 +167,7 @@ def process_model(sloop_csv, amat_csv, out_dir):
 
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "cos_summary.png"))
+    plt.savefig(os.path.join(out_dir, "cos_summary.eps"), format="eps")
     plt.close()
 
     # ======================================================
@@ -196,6 +197,7 @@ def process_model(sloop_csv, amat_csv, out_dir):
 
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "ratio_summary.png"))
+    plt.savefig(os.path.join(out_dir, "ratio_summary.eps"), format="eps")
     plt.close()
 
     # ======================================================
@@ -224,6 +226,7 @@ def process_model(sloop_csv, amat_csv, out_dir):
 
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "norm_summary.png"))
+    plt.savefig(os.path.join(out_dir, "norm_summary.eps"), format="eps")
     plt.close()
 
     print(f"[DONE] Saved plots → {out_dir}")

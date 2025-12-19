@@ -257,6 +257,8 @@ def plot_heatmaps_all(csv_list, out_png="h_heatmap_all.png"):
 
     plt.tight_layout(rect=[0, 0, 0.9, 1])
     plt.savefig(out_png, dpi=200)
+    out_eps = os.path.splitext(out_png)[0] + ".eps"
+    plt.savefig(out_eps)
     print(f"[SAVE] {out_png}")
 
 
@@ -322,6 +324,8 @@ def plot_heatmaps_all_dot(csv_list, out_png="h_heatmap_dot.png"):
 
     plt.tight_layout()
     plt.savefig(out_png, dpi=200)
+    out_eps = os.path.splitext(out_png)[0] + ".eps"
+    plt.savefig(out_eps)
     print(f"[SAVE] {out_png}")
 
 

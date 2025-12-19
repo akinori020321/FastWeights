@@ -210,6 +210,7 @@ def main():
     out_png = os.path.join(args.out_dir, "ln_stats.png")
     print(f"[Info] Saving figure → {out_png}")
     fig.savefig(out_png, dpi=200)
+    fig.savefig(out_png[:-4] + ".eps")
     plt.close(fig)
 
     print("[DONE]")

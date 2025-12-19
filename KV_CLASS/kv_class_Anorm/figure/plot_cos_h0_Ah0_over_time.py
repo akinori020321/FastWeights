@@ -220,6 +220,7 @@ def process_one_model(sloopvec_csv: str, amat_csv: str, out_dir: str):
     plt.tight_layout()
     out_png = os.path.join(out_dir, "cos_h0_Ah0_over_time.png")
     plt.savefig(out_png, dpi=200)
+    plt.savefig(out_png[:-4] + ".eps")
     plt.close()
 
     print(f"[DONE] Saved:")
