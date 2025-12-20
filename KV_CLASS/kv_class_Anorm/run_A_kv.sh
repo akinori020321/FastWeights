@@ -9,7 +9,7 @@ OUTDIR="results_A_kv"   # 結果ディレクトリ
 DG=100
 DH=50
 NUM_CLASSES=10
-TBIND=5
+TBIND=4
 BATCH=1
 
 # ★ 追加：待機ステップ数

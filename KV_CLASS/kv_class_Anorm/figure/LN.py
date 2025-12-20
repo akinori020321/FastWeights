@@ -105,7 +105,6 @@ def main() -> None:
         fontsize=10,
         transform=plt.gca().transAxes,
     )
-    plt.savefig(os.path.join(out_dir, "LN_summary.eps"), bbox_inches="tight")
     plt.close()
 
 
