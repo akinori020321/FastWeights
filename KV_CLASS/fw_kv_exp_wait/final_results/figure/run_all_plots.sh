@@ -33,7 +33,7 @@ done
 # learning curve (T_bind) は汎用スクリプトで複数 tbind を回す
 # ------------------------------------------------------------
 LC_SCRIPT="plot_learning_curve_Tbind.py"
-TBINDS=(5)
+TBINDS=(2 5)
 
 if [[ ! -f "$LC_SCRIPT" ]]; then
   echo "[WARN] missing: $LC_SCRIPT (skip)"

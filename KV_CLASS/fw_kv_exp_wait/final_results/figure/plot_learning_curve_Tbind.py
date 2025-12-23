@@ -9,12 +9,13 @@ T_bind{tbind}/ 配下の
 - tanh_*.csv    (SC-FW)
 を読み取り，横軸 epoch / 縦軸 acc の学習曲線を 1 枚にまとめて描画する。
 
+★追加：固定 epoch のみ表示
+  --epoch_list "0,1,2,5,10,20,50,100"
+  --epoch_step 5
+  --epoch_min 0 --epoch_max 300   ← ★ default=300
+
 出力:
 T_bind{tbind}_fig/learning_curve_Tbind{tbind}.png (+ .eps)
-
-使い方:
-python3 plot_learning_curve_Tbind.py --tbind 5
-python3 plot_learning_curve_Tbind.py --tbind 5 --csv_dir /path/to/T_bind5 --out_name my.png
 """
 
 import os
@@ -27,9 +28,6 @@ import matplotlib.pyplot as plt
 
 # ======================================================
 # 色・ラベル（ユーザー指定）
-#   fw   : fw_fw0_*.csv
-#   rnn  : fw_fw1_*.csv
-#   tanh : tanh_*.csv
 # ======================================================
 COLOR_MAP = {
     "fw":   "red",
@@ -64,7 +62,6 @@ def read_curve(path: str):
         print(f"[WARN] 'epoch' column not found: {path}")
         return None, None
 
-    # acc カラム候補（よくある順）
     acc_col = None
     for c in ["valid_acc", "val_acc", "acc", "accuracy"]:
         if c in df.columns:
@@ -87,39 +84,77 @@ def pick_latest(paths):
     return max(paths, key=os.path.getmtime)
 
 
+# ======================================================
+# epoch フィルタ（固定epochのみ表示）
+# ======================================================
+def parse_epoch_list(s: str):
+    # "0,1,2,5,10" -> [0.0, 1.0, ...]
+    vals = []
+    for tok in s.split(","):
+        tok = tok.strip()
+        if tok == "":
+            continue
+        vals.append(float(tok))
+    return vals
+
+
+def filter_curve_by_epoch(epochs, acc, epoch_list=None, epoch_step=None, epoch_min=None, epoch_max=None):
+    e = epochs
+    a = acc
+
+    mask = np.ones_like(e, dtype=bool)
+    if epoch_min is not None:
+        mask &= (e >= float(epoch_min))
+    if epoch_max is not None:
+        mask &= (e <= float(epoch_max))
+    e = e[mask]
+    a = a[mask]
+
+    # 指定epochだけ残す
+    if epoch_list is not None and len(epoch_list) > 0:
+        keep = np.zeros_like(e, dtype=bool)
+        for v in epoch_list:
+            keep |= np.isclose(e, v, rtol=0.0, atol=1e-9)
+        e = e[keep]
+        a = a[keep]
+
+    # step ごと（例：5epochごと）
+    if epoch_step is not None:
+        step = float(epoch_step)
+        if step > 0:
+            keep = np.isclose(np.mod(e, step), 0.0, rtol=0.0, atol=1e-9)
+            e = e[keep]
+            a = a[keep]
+
+    # epoch 昇順保証
+    if len(e) > 0:
+        idx = np.argsort(e)
+        e = e[idx]
+        a = a[idx]
+
+    return e, a
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--tbind",
-        type=int,
-        default=3,
-        help="T_bind の値（例: 3, 5, ...）",
-    )
-    ap.add_argument(
-        "--csv_dir",
-        type=str,
-        default=None,
-        help="T_bind{tbind} ディレクトリ（未指定なら <project_root>/T_bind{tbind}/）",
-    )
-    ap.add_argument(
-        "--out_dir",
-        type=str,
-        default=None,
-        help="出力先ディレクトリ（未指定なら <script_dir>/T_bind{tbind}_fig/）",
-    )
-    ap.add_argument(
-        "--out_name",
-        type=str,
-        default=None,
-        help="出力ファイル名（未指定なら learning_curve_Tbind{tbind}.png）",
-    )
-    ap.add_argument(
-        "--mode",
-        type=str,
-        default="latest",
-        choices=["latest", "all"],
-        help="同種のCSVが複数ある場合の扱い：latest=最新のみ / all=全て描画",
-    )
+    ap.add_argument("--tbind", type=int, default=3, help="T_bind の値（例: 3, 5, ...）")
+    ap.add_argument("--csv_dir", type=str, default=None,
+                    help="T_bind{tbind} ディレクトリ（未指定なら <project_root>/T_bind{tbind}/）")
+    ap.add_argument("--out_dir", type=str, default=None,
+                    help="出力先ディレクトリ（未指定なら <script_dir>/T_bind{tbind}_fig/）")
+    ap.add_argument("--out_name", type=str, default=None,
+                    help="出力ファイル名（未指定なら learning_curve_Tbind{tbind}.png）")
+    ap.add_argument("--mode", type=str, default="latest", choices=["latest", "all"],
+                    help="同種のCSVが複数ある場合の扱い：latest=最新のみ / all=全て描画")
+
+    # ★追加：epoch固定表示
+    ap.add_argument("--epoch_list", type=str, default=None,
+                    help='固定で表示したい epoch（カンマ区切り）。例: "0,1,2,5,10,20,50,100"')
+    ap.add_argument("--epoch_step", type=float, default=None,
+                    help="N epoch ごとに間引いて表示（例: 5 → 0,5,10,...）。epoch_list と併用可")
+    ap.add_argument("--epoch_min", type=float, default=None, help="表示する最小 epoch（範囲制限）")
+    ap.add_argument("--epoch_max", type=float, default=600, help="表示する最大 epoch（範囲制限）")
+
     args = ap.parse_args()
 
     tbind = args.tbind
@@ -140,6 +175,8 @@ def main():
     if not os.path.isdir(csv_dir):
         print(f"[ERROR] csv_dir not found: {csv_dir}")
         return
+
+    epoch_list = parse_epoch_list(args.epoch_list) if args.epoch_list else None
 
     # --------------------------------------------------
     # ファイル収集
@@ -177,6 +214,17 @@ def main():
             if epochs is None:
                 continue
 
+            # ★ここで epoch を固定/間引き/範囲制限
+            epochs, acc = filter_curve_by_epoch(
+                epochs, acc,
+                epoch_list=epoch_list,
+                epoch_step=args.epoch_step,
+                epoch_min=args.epoch_min,
+                epoch_max=args.epoch_max,
+            )
+            if epochs is None or len(epochs) == 0:
+                continue
+
             show_label = label if (args.mode == "latest" or i == 0) else None
             lw = 2 if args.mode == "latest" else 1.5
             alpha = 1.0 if args.mode == "latest" else 0.6
@@ -185,7 +233,7 @@ def main():
             any_plotted = True
 
     if not any_plotted:
-        print("[ERROR] No usable curves plotted. Check CSV contents/columns.")
+        print("[ERROR] No usable curves plotted. Check CSV contents/columns or epoch filters.")
         return
 
     plt.xlabel("Epoch")
@@ -194,6 +242,10 @@ def main():
     plt.grid(True)
     plt.legend()
     plt.title(f"Learning Curves (T_bind={tbind})")
+
+    # x軸の目盛も固定したい場合（epoch_list 指定時のみ）
+    if epoch_list is not None and len(epoch_list) > 0:
+        plt.xticks(sorted(epoch_list))
 
     out_path = os.path.join(out_dir, out_name)
     base, _ = os.path.splitext(out_path)
