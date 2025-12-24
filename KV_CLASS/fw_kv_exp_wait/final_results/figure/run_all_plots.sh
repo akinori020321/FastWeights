@@ -15,6 +15,7 @@ scripts=(
   "T_bind_sweep.py"
   "Wait_sweep.py"
   "alpha.py"
+  "plot_learning_curve_acc_loss_fw_vs_rnn.py"
 )
 
 # まず通常スクリプト群を実行
