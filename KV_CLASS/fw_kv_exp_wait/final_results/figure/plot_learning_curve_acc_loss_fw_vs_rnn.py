@@ -55,6 +55,9 @@ os.makedirs(OUT_DIR_DEFAULT, exist_ok=True)
 # sweep: 横軸に出したい最大 T_bind
 TBIND_MAX_DEFAULT = 18
 
+# ★ learning curve 図タイトル（デフォルト）
+CURVE_TITLE_DEFAULT = "Bind=4: Learning curve (Acc)  (FW seed + RNN mean)"
+
 # ======================================================
 # (1) sweep 用: モデル名と色/ラベル
 # ======================================================
@@ -362,8 +365,8 @@ def plot_learning_curve_acc_fw_vs_rnn(
     ax1.grid(True, alpha=0.25)
     ax1.legend(loc="lower right", frameon=True)
 
-    if title:
-        ax1.set_title(title)
+    # ★ learning curve のタイトル（常に表示）
+    ax1.set_title(title)
 
     fig.tight_layout()
 
@@ -404,7 +407,9 @@ def main():
 
     ap.add_argument("--smooth", type=int, default=1)
     ap.add_argument("--skip_curve", action="store_true", help="skip bind4 learning curve plot")
-    ap.add_argument("--curve_title", default="")
+
+    # ★ここをデフォルトでタイトル付きに
+    ap.add_argument("--curve_title", default=CURVE_TITLE_DEFAULT)
 
     args = ap.parse_args()
 
