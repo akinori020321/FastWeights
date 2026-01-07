@@ -59,7 +59,7 @@ echo "==============================================="
 echo "[STEP 2] Aggregate LN stats & make plots (plot_ln_stats.py)"
 echo "==============================================="
 
-python3 plot_ln_stats.py
+# python3 plot_ln_stats.py
 
 echo "==============================================="
 echo "[STEP 2 DONE]"

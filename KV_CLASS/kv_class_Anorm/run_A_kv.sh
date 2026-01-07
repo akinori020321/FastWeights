@@ -20,7 +20,7 @@ USE_FW="--use_fw"
 USE_LN="--use_ln"
 
 # Sweep する S の値
-S_LIST="1 3"
+S_LIST="1"
 
 # Sweep する core タイプ
 CORE_LIST="rnn fw tanh"

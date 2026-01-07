@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-S-loop ratio over time (SC-FW vs Ba-FW)
+S-loop ratio over time (Ba-FW vs SC-FW)
 ---------------------------------------
 - ../results_A_kv/ 以下の SloopVec_kv_*.csv と Amat_kv_*.csv を読む
 - 各モデルについて、各時刻 t で
       ratio(t) = ||A_t h_t^{(last input)}||_2 / ||h_t^{base}||_2
   を計算
-- SC-FW(core=fw) と Ba-FW(core=tanh) を 2 行サブプロットで別々に描画
+- Ba-FW(core=fw) と SC-FW(core=tanh) を 2 行サブプロットで別々に描画
+
+★色分け：
+  - (lambda, eta) = (0.95, 0.3) の線 → tab:orange（前と同じ橙）
+  - それ以外 → tab:blue（前と同じ青）
 
 出力:
   plots/sloop_all/ratio_over_time.png
+  plots/sloop_all/ratio_over_time.eps
 """
 
 import os
@@ -87,6 +92,7 @@ def load_A(csv_path):
     for _, row in df.iterrows():
         vals = row.values.astype(float)
 
+        # 先頭列が index 等の場合は落とす
         if int(np.sqrt(vals.shape[0] - 1)) ** 2 == vals.shape[0] - 1:
             vals = vals[1:]
 
@@ -113,6 +119,7 @@ def compute_ratio_curve(sloop_csv, amat_csv):
     for t, g in groups:
         t = int(t)
 
+        # base: s = -1
         base_rows = g[g["s"] == -1]
         if len(base_rows) == 0:
             continue
@@ -124,10 +131,13 @@ def compute_ratio_curve(sloop_csv, amat_csv):
             continue
         A = A_list[t]
 
+        # loop rows: s >= 0
         loop_rows = g[g["s"] >= 0].sort_values("s")
         if len(loop_rows) == 0:
             continue
-        elif len(loop_rows) == 1:
+
+        # 実装都合：最後の 1 つ手前を「last input」相当として採用
+        if len(loop_rows) == 1:
             target_row = loop_rows.iloc[0]
         else:
             target_row = loop_rows.iloc[-2]
@@ -160,6 +170,7 @@ def main():
         print("[ERROR] Required CSV files not found.")
         return
 
+    # Amat を model_id で引けるように map 化
     amat_map = {}
     for a_csv in amat_list:
         parsed = parse_amat_filename(a_csv)
@@ -171,12 +182,13 @@ def main():
     out_dir = "plots/sloop_all"
     os.makedirs(out_dir, exist_ok=True)
 
-    curves_sc, curves_ba = [], []
+    # ★ core の割り当て：fw -> Ba-FW, tanh -> SC-FW
+    curves_ba, curves_sc = [], []
 
     for s_csv in sloop_list:
         core, S, eta, lam, seed, model_id = parse_sloop_filename(s_csv)
 
-        # ★ rnn は A が無いのでスキップ
+        # rnn は A が無いのでスキップ
         if core == "rnn":
             print(f"[SKIP] rnn has no A-matrix: {os.path.basename(s_csv)}")
             continue
@@ -188,27 +200,35 @@ def main():
         print(f"[PROCESS] {model_id}")
         t_arr, ratio_arr = compute_ratio_curve(s_csv, amat_map[model_id])
 
-        if core == "fw":
-            curves_sc.append((t_arr, ratio_arr, f"SC-FW_S{S}_eta{eta}_lam{lam}_seed{seed}"))
-        elif core == "tanh":
-            curves_ba.append((t_arr, ratio_arr, f"Ba-FW_S{S}_eta{eta}_lam{lam}_seed{seed}"))
+        # 表示用に eta/lam を小数へ（eta0300 -> 0.3, lam0950 -> 0.95）
+        eta_f = int(eta) / 1000.0
+        lam_f = int(lam) / 1000.0
 
-    if len(curves_sc) == 0 and len(curves_ba) == 0:
+        # ★色： (lam, eta) = (0.95, 0.3) だけ橙、それ以外は青（トーンは tab:* で固定）
+        color = "tab:orange" if (int(lam) == 950 and int(eta) == 300) else "tab:blue"
+
+        if core == "fw":
+            curves_ba.append((t_arr, ratio_arr, f"Ba-FW (eta={eta_f:.1f}, lam={lam_f:.2f}, seed={seed})", color))
+        elif core == "tanh":
+            curves_sc.append((t_arr, ratio_arr, f"SC-FW (eta={eta_f:.1f}, lam={lam_f:.2f}, seed={seed})", color))
+
+    if len(curves_ba) == 0 and len(curves_sc) == 0:
         print("[ERROR] No valid curves to plot.")
         return
 
-    if len(curves_sc) > 0 and len(curves_ba) > 0:
+    # 両方あるなら 2 段，片方だけなら 1 枚
+    if len(curves_ba) > 0 and len(curves_sc) > 0:
         fig, (ax_ba, ax_sc) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
 
-        for t, r, lab in curves_ba:
-            ax_ba.plot(t, r, marker="o", label=lab)
+        for t, r, lab, col in curves_ba:
+            ax_ba.plot(t, r, marker="o", label=lab, color=col)
         ax_ba.axhline(1.0, color="gray", linestyle="--")
         ax_ba.set_title("Ba-FW")
         ax_ba.grid(True)
         ax_ba.legend()
 
-        for t, r, lab in curves_sc:
-            ax_sc.plot(t, r, marker="o", label=lab)
+        for t, r, lab, col in curves_sc:
+            ax_sc.plot(t, r, marker="o", label=lab, color=col)
         ax_sc.axhline(1.0, color="gray", linestyle="--")
         ax_sc.set_title("SC-FW")
         ax_sc.grid(True)
@@ -216,20 +236,25 @@ def main():
 
     else:
         fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-        curves = curves_sc if len(curves_sc) > 0 else curves_ba
-        for t, r, lab in curves:
-            ax.plot(t, r, marker="o", label=lab)
+        curves = curves_ba if len(curves_ba) > 0 else curves_sc
+        title = "Ba-FW" if len(curves_ba) > 0 else "SC-FW"
+
+        for t, r, lab, col in curves:
+            ax.plot(t, r, marker="o", label=lab, color=col)
         ax.axhline(1.0, color="gray", linestyle="--")
+        ax.set_title(title)
         ax.grid(True)
         ax.legend()
 
     plt.tight_layout()
+
     save_path = os.path.join(out_dir, "ratio_over_time.png")
     plt.savefig(save_path)
+
     save_path_eps = os.path.join(out_dir, "ratio_over_time.eps")
     plt.savefig(save_path_eps)
-    plt.close()
 
+    plt.close()
     print(f"[DONE] Saved plot → {save_path}")
 
 
