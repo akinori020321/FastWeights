@@ -60,10 +60,10 @@ def read_final_acc(path):
     return None
 
 # ======================================================
-# 各モデルの wait → acc の dict を作る
+# 各モデルの wait → acc(list) を作る（seedごとの値を保持）
 # ======================================================
-def load_model_stats(model_dir):
-    acc_by_W = {}
+def load_model_raw(model_dir):
+    acc_by_W = {}  # W -> [acc1, acc2, ...]
 
     for fname in os.listdir(model_dir):
         if not fname.endswith(".csv"):
@@ -80,100 +80,162 @@ def load_model_stats(model_dir):
 
         acc_by_W.setdefault(W, []).append(acc)
 
-    W_list = []
-    acc_mean_list = []
-    acc_std_list = []
+    return acc_by_W
 
+def summarize(acc_by_W):
+    W_list, mean_list, std_list = [], [], []
     for W in sorted(acc_by_W.keys()):
-        vals = acc_by_W[W]
+        vals = np.array(acc_by_W[W], dtype=float)
         W_list.append(W)
-        acc_mean_list.append(float(np.mean(vals)))
-        acc_std_list.append(float(np.std(vals)))
-
-    return W_list, acc_mean_list, acc_std_list
+        mean_list.append(float(vals.mean()))
+        std_list.append(float(vals.std()))
+    return W_list, mean_list, std_list
 
 # ======================================================
-# メイン：点＋エラーバー + 薄いガイド線
+# 1モデル分を描画（背景に他モデルの平均線も入れる）
+# ======================================================
+def plot_single_model(target_key, raw_by_model, summary_by_model, tick_W):
+    target_label = LABEL_MAP[target_key]
+    target_color = COLOR_MAP[target_key]
+
+    W_t, mean_t, std_t = summary_by_model[target_key]
+    acc_by_W_t = raw_by_model[target_key]
+
+    plt.figure(figsize=(8, 5))
+
+    # ----------------------------
+    # 背景：対象以外の「平均線」を薄く
+    # ----------------------------
+    for other_key, (W_o, mean_o, _std_o) in summary_by_model.items():
+        if other_key == target_key:
+            continue
+        plt.plot(
+            W_o, mean_o,
+            color=COLOR_MAP[other_key],
+            linewidth=1.5,
+            alpha=0.20,      # ★「今の薄さ」
+            zorder=1,
+            label=LABEL_MAP[other_key],  # 凡例に出す
+        )
+
+    # ----------------------------
+    # 対象：各seed点（濃く）
+    # ----------------------------
+    xs, ys = [], []
+    for W in W_t:
+        vals = acc_by_W_t[W]
+        n = len(vals)
+        if n == 1:
+            offsets = [0.0]
+        else:
+            jitter_width = 0.18
+            offsets = np.linspace(-jitter_width, jitter_width, n)
+        for off, v in zip(offsets, vals):
+            xs.append(W + off)
+            ys.append(v)
+
+    plt.scatter(
+        xs, ys,
+        s=22,
+        color=target_color,
+        alpha=0.85,      # ★点を濃く（以前 0.25）
+        linewidths=0.0,
+        zorder=2,
+    )
+
+    # ----------------------------
+    # 対象：平均線（濃く）
+    # ----------------------------
+    plt.plot(
+        W_t, mean_t,
+        color=target_color,
+        linewidth=1.5,
+        alpha=0.85,      # ★結ぶ線を濃く（以前 0.35）
+        zorder=3,
+        label=target_label,  # 凡例に出す（背景線と同じ扱い）
+    )
+
+    # ----------------------------
+    # 対象：平均±std（エラーバーのみ：平均丸は消す）
+    # ----------------------------
+    plt.errorbar(
+        W_t,
+        mean_t,
+        yerr=std_t,
+        fmt="none",          # ★平均の丸を消す（ここだけ変更）
+        markersize=6.5,
+        markerfacecolor="white",
+        markeredgecolor=target_color,
+        markeredgewidth=1.2,
+        capsize=3,
+        capthick=1.0,
+        elinewidth=1.0,
+        ecolor=target_color,
+        alpha=0.45,
+        linestyle="none",
+        zorder=4,
+        label="_nolegend_",  # 凡例は平均線側にまとめる
+    )
+
+    plt.xlabel("Wait")
+    plt.ylabel("Accuracy")
+    plt.title(f"Effect of Wait Length on Accuracy ({target_label})")
+
+    plt.ylim(0, 1.03)
+    plt.xlim(-1, WAIT_MAX + 1)
+
+    plt.xticks(tick_W, [str(w) for w in tick_W])
+
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+
+    out_base = os.path.join(OUT_DIR, f"wait_sweep_{target_key}")
+    plt.savefig(out_base + ".png", dpi=200, bbox_inches="tight")
+    plt.savefig(out_base + ".eps", dpi=200, bbox_inches="tight")
+    plt.close()
+
+    print(f"[INFO] Saved → {out_base}.png / .eps")
+
+# ======================================================
+# メイン：全モデル読み込み→モデル別に3枚出す
 # ======================================================
 def main():
-
     model_dirs = {
         "fw":   os.path.join(CSV_ROOT, "results_wait_fw"),
         "rnn":  os.path.join(CSV_ROOT, "results_wait_rnn"),
         "tanh": os.path.join(CSV_ROOT, "results_wait_tanh"),
     }
 
-    model_data = {}
-    any_data = False
+    raw_by_model = {}
+    summary_by_model = {}
 
+    # 読み込み
     for model, path in model_dirs.items():
         if not os.path.isdir(path):
             print(f"[WARN] Missing model dir: {path}")
             continue
 
-        W_list, mean_list, std_list = load_model_stats(path)
-        model_data[model] = (W_list, mean_list, std_list)
+        acc_by_W = load_model_raw(path)
+        if len(acc_by_W) == 0:
+            print(f"[WARN] No CSV matched in: {path}")
+            continue
 
-        if len(W_list) > 0:
-            any_data = True
+        raw_by_model[model] = acc_by_W
+        summary_by_model[model] = summarize(acc_by_W)
 
-    if not any_data:
+    if len(summary_by_model) == 0:
         print("[ERROR] No wait data found.")
         return
 
-    # ======================================================
-    # Plot
-    # ======================================================
-    plt.figure(figsize=(8, 5))  # Tbind と一致
+    # x軸 tick を統一（全モデルの wait の和集合）
+    tick_W = sorted(set().union(*[set(summary_by_model[m][0]) for m in summary_by_model]))
 
-    for model, (W_list, mean_list, std_list) in model_data.items():
-        if len(W_list) == 0:
+    # 図を出す（存在するモデルだけ）
+    for target_key in ["fw", "rnn", "tanh"]:
+        if target_key not in summary_by_model:
             continue
-
-        # ★ 薄いガイド線（点を結ぶ）
-        plt.plot(
-            W_list,
-            mean_list,
-            color=COLOR_MAP[model],
-            linewidth=1.5,
-            alpha=0.35,
-            zorder=1,
-        )
-
-        plt.errorbar(
-            W_list,
-            mean_list,
-            yerr=std_list,
-            fmt="o",
-            markersize=6,
-            capsize=3,        # ← capを少し長く
-            capthick=2.0,     # ← cap線を太く
-            elinewidth=2.0,   # ← 誤差バー本体を太く
-            color=COLOR_MAP[model],
-            label=LABEL_MAP[model],   # ★ ここだけ変更
-            linestyle="none",
-            zorder=2,
-        )
-
-    plt.xlabel("Wait")
-    plt.ylabel("Accuracy")
-    plt.title("Effect of Wait Length on Accuracy")
-    plt.ylim(0, 1.03)  # ★ 1.0の上に余白
-    plt.xlim(-1, WAIT_MAX + 1)
-
-    tick_W = sorted(set().union(*[model_data[m][0] for m in model_data]))
-    plt.xticks(tick_W, [str(w) for w in tick_W])
-
-    plt.grid(True, alpha=0.4)
-    plt.legend()
-    plt.tight_layout()
-
-    out_path = os.path.join(OUT_DIR, "wait_sweep.png")
-    plt.savefig(out_path, dpi=200, bbox_inches="tight")
-    plt.savefig(out_path[:-4] + ".eps", dpi=200, bbox_inches="tight")
-    plt.close()
-
-    print(f"[INFO] Saved → {out_path}")
+        plot_single_model(target_key, raw_by_model, summary_by_model, tick_W)
 
 if __name__ == "__main__":
     main()

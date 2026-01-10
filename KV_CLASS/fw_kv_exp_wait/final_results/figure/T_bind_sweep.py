@@ -35,9 +35,14 @@ LABEL_MAP = {
     "tanh": "SC-FW",
 }
 
+# ======================================================
 # ファイル名例：
 # fw_fw0_T8_S1_seed0_beta1.00_wait0.csv
-PATTERN = re.compile(r"_T(?P<T>\d+)_S(?P<S>\d+)_seed(?P<seed>\d+)")
+# T / seed を抽出（Wait版と同じく末尾まで縛る）
+# ======================================================
+PATTERN = re.compile(
+    r"_T(?P<T>\d+)_S(?P<S>\d+)_seed(?P<seed>\d+)_beta[0-9.]+_wait(?P<W>\d+)\.csv$"
+)
 
 # ======================================================
 # CSV 読み取り：最終 epoch の acc を取得
@@ -50,15 +55,15 @@ def read_final_acc(path):
 
     if "valid_acc" in df.columns:
         return float(df["valid_acc"].iloc[-1])
-    elif "acc" in df.columns:
+    if "acc" in df.columns:
         return float(df["acc"].iloc[-1])
     return None
 
 # ======================================================
-# 各モデルの T_bind → acc の dict を作る
+# 各モデルの T_bind → acc(list) を作る（seedごとの値を保持）
 # ======================================================
-def load_model_stats(model_dir):
-    acc_by_T = {}
+def load_model_raw(model_dir):
+    acc_by_T = {}  # T -> [acc1, acc2, ...]
 
     for fname in os.listdir(model_dir):
         if not fname.endswith(".csv"):
@@ -75,102 +80,162 @@ def load_model_stats(model_dir):
 
         acc_by_T.setdefault(T, []).append(acc)
 
-    # ソートして返す
-    T_list = []
-    acc_mean = []
-    acc_std = []
+    return acc_by_T
 
+def summarize(acc_by_T):
+    T_list, mean_list, std_list = [], [], []
     for T in sorted(acc_by_T.keys()):
-        vals = acc_by_T[T]
+        vals = np.array(acc_by_T[T], dtype=float)
         T_list.append(T)
-        acc_mean.append(float(np.mean(vals)))
-        acc_std.append(float(np.std(vals)))
-
-    return T_list, acc_mean, acc_std
+        mean_list.append(float(vals.mean()))
+        std_list.append(float(vals.std()))
+    return T_list, mean_list, std_list
 
 # ======================================================
-# メイン：点＋エラーバー + 薄いガイド線
+# 1モデル分を描画（背景に他モデルの平均線も入れる）
+# ======================================================
+def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
+    target_label = LABEL_MAP[target_key]
+    target_color = COLOR_MAP[target_key]
+
+    T_t, mean_t, std_t = summary_by_model[target_key]
+    acc_by_T_t = raw_by_model[target_key]
+
+    plt.figure(figsize=(8, 5))
+
+    # ----------------------------
+    # 背景：対象以外の「平均線」を薄く
+    # ----------------------------
+    for other_key, (T_o, mean_o, _std_o) in summary_by_model.items():
+        if other_key == target_key:
+            continue
+        plt.plot(
+            T_o, mean_o,
+            color=COLOR_MAP[other_key],
+            linewidth=1.5,
+            alpha=0.20,      # ★薄い
+            zorder=1,
+            label=LABEL_MAP[other_key],  # 凡例に出す
+        )
+
+    # ----------------------------
+    # 対象：各seed点（濃く）
+    # ----------------------------
+    xs, ys = [], []
+    for T in T_t:
+        vals = acc_by_T_t[T]
+        n = len(vals)
+        if n == 1:
+            offsets = [0.0]
+        else:
+            jitter_width = 0.18
+            offsets = np.linspace(-jitter_width, jitter_width, n)
+        for off, v in zip(offsets, vals):
+            xs.append(T + off)
+            ys.append(v)
+
+    plt.scatter(
+        xs, ys,
+        s=22,
+        color=target_color,
+        alpha=0.85,
+        linewidths=0.0,
+        zorder=2,
+    )
+
+    # ----------------------------
+    # 対象：平均線（濃く）
+    # ----------------------------
+    plt.plot(
+        T_t, mean_t,
+        color=target_color,
+        linewidth=1.5,
+        alpha=0.85,
+        zorder=3,
+        label=target_label,
+    )
+
+    # ----------------------------
+    # 対象：平均±std（エラーバーのみ：平均丸は消す）
+    # ----------------------------
+    plt.errorbar(
+        T_t,
+        mean_t,
+        yerr=std_t,
+        fmt="none",          # ★平均の丸を消す
+        markersize=6.5,
+        markerfacecolor="white",
+        markeredgecolor=target_color,
+        markeredgewidth=1.2,
+        capsize=3,
+        capthick=1.0,
+        elinewidth=1.0,
+        ecolor=target_color,
+        alpha=0.45,
+        linestyle="none",
+        zorder=4,
+        label="_nolegend_",
+    )
+
+    plt.xlabel("T_bind")
+    plt.ylabel("Accuracy")
+    plt.title(f"Effect of Bind Length on Accuracy ({target_label})")
+
+    plt.ylim(0, 1.03)
+    plt.xlim(1, TBIND_MAX + 1)
+
+    plt.xticks(tick_T, [str(t) for t in tick_T])
+
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+
+    out_base = os.path.join(OUT_DIR, f"tbind_sweep_{target_key}")
+    plt.savefig(out_base + ".png", dpi=200, bbox_inches="tight")
+    plt.savefig(out_base + ".eps", dpi=200, bbox_inches="tight")
+    plt.close()
+
+    print(f"[INFO] Saved → {out_base}.png / .eps")
+
+# ======================================================
+# メイン：全モデル読み込み→モデル別に3枚出す
 # ======================================================
 def main():
-
     model_dirs = {
         "fw":   os.path.join(CSV_ROOT, "results_Tbind_fw"),
         "rnn":  os.path.join(CSV_ROOT, "results_Tbind_rnn"),
         "tanh": os.path.join(CSV_ROOT, "results_Tbind_tanh"),
     }
 
-    model_data = {}
-    any_data = False
+    raw_by_model = {}
+    summary_by_model = {}
 
+    # 読み込み
     for model, path in model_dirs.items():
         if not os.path.isdir(path):
             print(f"[WARN] Missing model dir: {path}")
             continue
 
-        T_list, mean_list, std_list = load_model_stats(path)
-        model_data[model] = (T_list, mean_list, std_list)
+        acc_by_T = load_model_raw(path)
+        if len(acc_by_T) == 0:
+            print(f"[WARN] No CSV matched in: {path}")
+            continue
 
-        if len(T_list) > 0:
-            any_data = True
+        raw_by_model[model] = acc_by_T
+        summary_by_model[model] = summarize(acc_by_T)
 
-    if not any_data:
+    if len(summary_by_model) == 0:
         print("[ERROR] No T_bind data found.")
         return
 
-    # ======================================================
-    # Plot
-    # ======================================================
-    plt.figure(figsize=(8, 5))  # 横幅 8 インチ固定
+    # x軸 tick を統一（全モデルの T_bind の和集合）
+    tick_T = sorted(set().union(*[set(summary_by_model[m][0]) for m in summary_by_model]))
 
-    for model, (T_list, mean_list, std_list) in model_data.items():
-        if len(T_list) == 0:
+    # 図を出す（存在するモデルだけ）
+    for target_key in ["fw", "rnn", "tanh"]:
+        if target_key not in summary_by_model:
             continue
-
-        # ★ 薄いガイド線（点を結ぶ）
-        plt.plot(
-            T_list,
-            mean_list,
-            color=COLOR_MAP[model],
-            linewidth=1.5,
-            alpha=0.35,
-            zorder=1,
-        )
-
-        # 点＋エラーバー（Wait と同じ見た目）
-        plt.errorbar(
-            T_list,
-            mean_list,
-            yerr=std_list,
-            fmt="o",
-            markersize=6,
-            capsize=3,
-            capthick=2.0,
-            elinewidth=2.0,
-            color=COLOR_MAP[model],
-            label=LABEL_MAP[model],   # ★ ここだけ変更
-            linestyle="none",
-            zorder=2,
-        )
-
-    plt.xlabel("T_bind")
-    plt.ylabel("Accuracy")
-    plt.title("Effect of Bind Length on Accuracy")
-    plt.ylim(0, 1.03)
-    plt.xlim(1, TBIND_MAX + 1)
-
-    tick_T = sorted(set().union(*[model_data[m][0] for m in model_data if m in model_data]))
-    plt.xticks(tick_T, [str(t) for t in tick_T])
-
-    plt.grid(True, alpha=0.4)
-    plt.legend()
-    plt.tight_layout()
-
-    out_path = os.path.join(OUT_DIR, "tbind_sweep.png")
-    plt.savefig(out_path, dpi=200, bbox_inches="tight")
-    plt.savefig(out_path[:-4] + ".eps", dpi=200, bbox_inches="tight")
-    plt.close()
-
-    print(f"[INFO] Saved → {out_path}")
+        plot_single_model(target_key, raw_by_model, summary_by_model, tick_T)
 
 if __name__ == "__main__":
     main()
