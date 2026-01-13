@@ -191,20 +191,21 @@ def plot_single_model(target_key, raw_by_model, aligned_by_model):
     # ----------------------------
     # 対象：平均±std（エラーバーのみ：平均丸なし）
     # ----------------------------
-    plt.errorbar(
-        x,
-        mean_t,
-        yerr=std_t,
-        fmt="none",
-        ecolor=target_color,
-        elinewidth=1.0,
-        capsize=3,
-        capthick=1.0,
-        alpha=0.45,
-        linestyle="none",
-        zorder=4,
-        label="_nolegend_",
-    )
+    if target_key != "tanh3":
+        plt.errorbar(
+            x,
+            mean_t,
+            yerr=std_t,
+            fmt="none",
+            ecolor=target_color,
+            elinewidth=1.0,
+            capsize=3,
+            capthick=1.0,
+            alpha=0.45,
+            linestyle="none",
+            zorder=4,
+            label="_nolegend_",
+        )
 
     plt.xlabel("Clean Rate")
     plt.ylabel("Accuracy (cosine)")

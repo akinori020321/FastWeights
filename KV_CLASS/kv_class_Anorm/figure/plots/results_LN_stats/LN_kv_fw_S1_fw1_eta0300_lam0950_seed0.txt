@@ -3,13 +3,13 @@
 
 ln_h.bias
   shape : (50,)
-  mean  : -0.034087, std: 0.391813
-  min   : -1.055310, max: 0.611549
-  #pos  : 19, #neg: 31, #zero: 0
+  mean  : -0.355106, std: 0.607912
+  min   : -2.352079, max: 0.385118
+  #pos  : 6, #neg: 44, #zero: 0
 
 ln_h.weight
   shape : (50,)
-  mean  : 0.705497, std: 0.540887
-  min   : 0.006606, max: 1.684409
-  #pos  : 50, #neg: 0, #zero: 0
+  mean  : 0.968842, std: 0.781712
+  min   : -0.027942, max: 2.214147
+  #pos  : 49, #neg: 1, #zero: 0
 

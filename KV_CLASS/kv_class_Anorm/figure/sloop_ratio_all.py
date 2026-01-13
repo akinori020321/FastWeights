@@ -208,9 +208,10 @@ def main():
         color = "tab:orange" if (int(lam) == 950 and int(eta) == 300) else "tab:blue"
 
         if core == "fw":
-            curves_ba.append((t_arr, ratio_arr, f"Ba-FW (eta={eta_f:.1f}, lam={lam_f:.2f}, seed={seed})", color))
+            curves_ba.append((t_arr, ratio_arr, f"Ba-FW, S={S}, $\\eta$={eta_f:.1f}, $\\lambda$={lam_f:.2f}", color))
         elif core == "tanh":
-            curves_sc.append((t_arr, ratio_arr, f"SC-FW (eta={eta_f:.1f}, lam={lam_f:.2f}, seed={seed})", color))
+            curves_sc.append((t_arr, ratio_arr, f"SC-FW, S={S}, $\\eta$={eta_f:.1f}, $\\lambda$={lam_f:.2f}", color))
+
 
     if len(curves_ba) == 0 and len(curves_sc) == 0:
         print("[ERROR] No valid curves to plot.")
