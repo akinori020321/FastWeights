@@ -122,7 +122,8 @@ def main():
     # --------------------------------------------------
     # Plot（線4本あれば4本、欠けててもあるぶんだけ描く）
     # --------------------------------------------------
-    plt.figure(figsize=(8, 5))
+    # ★余白感（plot_tbind_sweep_and_curve の curve 側に合わせる）
+    plt.figure(figsize=(8.6, 4.2))
 
     for epochs, acc, label, color in curves:
         plt.plot(epochs, acc, label=label, color=color, linewidth=2)
@@ -130,9 +131,18 @@ def main():
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
     plt.ylim(0.0, 1.0)
-    plt.grid(True)
+
+    # ★補助線の薄さ（plot_tbind_sweep_and_curve の curve 側に合わせる）
+    plt.grid(True, alpha=0.25)
+
     plt.legend()
     plt.title("Effect of Layer Normalization on Ba-FW and RNN")
+
+    # ★ 0〜150 を表示しつつ、左右に少し余白を作る（-20 は出さない）
+    plt.xlim(-3, 153)
+    ax = plt.gca()
+    xt = list(np.arange(0, 141, 20)) + [150]  # 0,20,...,140,150
+    ax.set_xticks(xt)
 
     out_path = os.path.join(OUT_DIR, "ln_sweep_acc.png")
     plt.savefig(out_path, dpi=200, bbox_inches="tight")

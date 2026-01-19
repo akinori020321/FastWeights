@@ -225,6 +225,7 @@ def main():
             ax_ba.plot(t, r, marker="o", label=lab, color=col)
         ax_ba.axhline(1.0, color="gray", linestyle="--")
         ax_ba.set_title("Ba-FW")
+        ax_ba.set_ylabel(r"$r_t$")
         ax_ba.grid(True)
         ax_ba.legend()
 
@@ -232,6 +233,8 @@ def main():
             ax_sc.plot(t, r, marker="o", label=lab, color=col)
         ax_sc.axhline(1.0, color="gray", linestyle="--")
         ax_sc.set_title("SC-FW")
+        ax_sc.set_xlabel("t (step)")
+        ax_sc.set_ylabel(r"$r_t$")
         ax_sc.grid(True)
         ax_sc.legend()
 
@@ -244,6 +247,8 @@ def main():
             ax.plot(t, r, marker="o", label=lab, color=col)
         ax.axhline(1.0, color="gray", linestyle="--")
         ax.set_title(title)
+        ax.set_xlabel("t (step)")
+        ax.set_ylabel(r"$r_t$")
         ax.grid(True)
         ax.legend()
 

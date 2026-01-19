@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-plot_tbind_sweep_and_curve.py
+plot_tbind_curve_only.py
 ========================================================
-(1) T_bind sweep（RNN+LN と Ba-FW のみ）
-    - ../T_bind/results_Tbind_fw/
-    - ../T_bind/results_Tbind_rnn/
-    から最終 epoch の acc を集計し，T_bind vs Acc（mean±std）を描画
-
-(2) Bind=4 学習曲線（Acc のみ：FW seed曲線 + FW mean±std + RNN mean）
+Bind=4 学習曲線（Acc のみ：FW seed曲線 + FW mean±std + RNN mean）
     - ../T_bind/results_Tbind_fw4/ から
         fw_fw1_T4_S1_seed*_beta1.00_wait2.csv
       -> seed曲線 + mean±std + mean（黒破線）
     - ../T_bind/results_Tbind_rnn/ から bind=4（T4）のCSVを探索
       -> mean（赤実線）のみ
 
-出力（★両方同じディレクトリ）:
+追加:
+  - FW の「最終epochのAccが最大」の seed を1本だけ描く図（RNNなし）
+    -> 図の見方・収束イメージ説明用
+
+出力:
   out_dir/ に
-    - tbind_sweep.(png|eps)
     - learning_curve_acc_fw_vs_rnn_T4_wait2_beta1.00.(png|eps)
+    - learning_curve_acc_fw_best_T4_wait2_beta1.00.(png|eps)
 ========================================================
 """
 
@@ -39,169 +38,25 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # ======================================================
 # 入力パス
 # ======================================================
-# (1) T_bind sweep 用
-CSV_ROOT_SWEEP = os.path.join(THIS_DIR, "..", "T_bind")
-
-# (2) Bind=4 learning curve 用
+# Bind=4 learning curve 用
 FW_CSV_DIR_DEFAULT  = os.path.join(THIS_DIR, "..", "T_bind", "results_Tbind_fw4")
 RNN_CSV_DIR_DEFAULT = os.path.join(THIS_DIR, "..", "T_bind", "results_Tbind_rnn")
 
 # ======================================================
-# ★出力先（両方同じ）
+# ★出力先
 # ======================================================
 OUT_DIR_DEFAULT = os.path.join(THIS_DIR, "Tbind_and_curve_fig")
 os.makedirs(OUT_DIR_DEFAULT, exist_ok=True)
 
-# sweep: 横軸に出したい最大 T_bind
-TBIND_MAX_DEFAULT = 18
-
 # ★ learning curve 図タイトル（デフォルト）
 CURVE_TITLE_DEFAULT = "Bind=4: Learning curve (Acc)  (FW seed + RNN mean)"
 
-# ======================================================
-# (1) sweep 用: モデル名と色/ラベル
-# ======================================================
-COLOR_MAP = {
-    "fw":  "red",
-    "rnn": "blue",
-}
-
-LABEL_MAP = {
-    "rnn": "RNN+LN",
-    "fw":  "Ba-FW",
-}
-
-# ファイル名例：
-# fw_fw0_T8_S1_seed0_beta1.00_wait0.csv
-PATTERN_TBIND = re.compile(r"_T(?P<T>\d+)_S(?P<S>\d+)_seed(?P<seed>\d+)")
+# ★ best-run 図タイトル（デフォルト）
+BEST_CURVE_TITLE_DEFAULT = "Bind=4: Example learning curve (Ba-FW)"
 
 
 # ======================================================
-# (1) T_bind sweep: CSV 読み取り（最終 epoch の acc）
-# ======================================================
-def read_final_acc(path: str):
-    try:
-        df = pd.read_csv(path)
-    except Exception:
-        return None
-
-    for key in ["valid_acc", "val_acc", "acc_val", "acc"]:
-        if key in df.columns:
-            return float(df[key].iloc[-1])
-    return None
-
-
-def load_model_stats_sweep(model_dir: str):
-    acc_by_T = {}
-
-    for fname in os.listdir(model_dir):
-        if not fname.endswith(".csv"):
-            continue
-
-        m = PATTERN_TBIND.search(fname)
-        if m is None:
-            continue
-
-        T = int(m.group("T"))
-        acc = read_final_acc(os.path.join(model_dir, fname))
-        if acc is None:
-            continue
-
-        acc_by_T.setdefault(T, []).append(acc)
-
-    T_list, acc_mean, acc_std = [], [], []
-
-    for T in sorted(acc_by_T.keys()):
-        vals = acc_by_T[T]
-        T_list.append(T)
-        acc_mean.append(float(np.mean(vals)))
-        acc_std.append(float(np.std(vals)))
-
-    return T_list, acc_mean, acc_std
-
-
-def plot_tbind_sweep(tbind_max: int, out_dir: str):
-    # ★RNN と Ba-FW のみ
-    model_dirs = {
-        "fw":  os.path.join(CSV_ROOT_SWEEP, "results_Tbind_fw"),
-        "rnn": os.path.join(CSV_ROOT_SWEEP, "results_Tbind_rnn"),
-    }
-
-    model_data = {}
-    any_data = False
-
-    for model, path in model_dirs.items():
-        if not os.path.isdir(path):
-            print(f"[WARN] Missing model dir: {path}")
-            continue
-
-        T_list, mean_list, std_list = load_model_stats_sweep(path)
-        model_data[model] = (T_list, mean_list, std_list)
-
-        if len(T_list) > 0:
-            any_data = True
-
-    if not any_data:
-        print("[ERROR] No T_bind data found for sweep.")
-        return
-
-    plt.figure(figsize=(8, 5))
-
-    for model, (T_list, mean_list, std_list) in model_data.items():
-        if len(T_list) == 0:
-            continue
-
-        # 薄いガイド線（点を結ぶ）
-        plt.plot(
-            T_list,
-            mean_list,
-            color=COLOR_MAP[model],
-            linewidth=1.5,
-            alpha=0.35,
-            zorder=1,
-        )
-
-        # 点＋エラーバー
-        plt.errorbar(
-            T_list,
-            mean_list,
-            yerr=std_list,
-            fmt="o",
-            markersize=6,
-            capsize=3,
-            capthick=2.0,
-            elinewidth=2.0,
-            color=COLOR_MAP[model],
-            label=LABEL_MAP[model],
-            linestyle="none",
-            zorder=2,
-        )
-
-    plt.xlabel("T_bind")
-    plt.ylabel("Accuracy")
-    plt.title("Effect of Bind Length on Accuracy")
-    plt.ylim(0, 1.03)
-    plt.xlim(1, tbind_max + 1)
-
-    tick_T = sorted(set().union(*[model_data[m][0] for m in model_data if m in model_data]))
-    plt.xticks(tick_T, [str(t) for t in tick_T])
-
-    plt.grid(True, alpha=0.4)
-    plt.legend()
-    plt.tight_layout()
-
-    out_png = os.path.join(out_dir, "tbind_sweep.png")
-    out_eps = os.path.join(out_dir, "tbind_sweep.eps")
-    plt.savefig(out_png, dpi=200, bbox_inches="tight")
-    plt.savefig(out_eps, dpi=200, bbox_inches="tight")
-    plt.close()
-
-    print(f"[INFO] Saved → {out_png}")
-    print(f"[INFO] Saved → {out_eps}")
-
-
-# ======================================================
-# (2) Bind=4 learning curve: 共通ユーティリティ
+# Bind=4 learning curve: 共通ユーティリティ
 # ======================================================
 def pick_col(df: pd.DataFrame, candidates, kind: str):
     cols = {c.lower(): c for c in df.columns}
@@ -277,6 +132,24 @@ def find_files_with_fallback(csv_dir: str, patterns):
     return [], None
 
 
+def _read_final_acc_from_csv(path: str):
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return None
+
+    for key in ["valid_acc", "val_acc", "acc_val", "acc"]:
+        if key in df.columns:
+            try:
+                return float(df[key].iloc[-1])
+            except Exception:
+                return None
+    return None
+
+
+# ======================================================
+# (A) 既存：FW seed + mean±std + RNN mean
+# ======================================================
 def plot_learning_curve_acc_fw_vs_rnn(
     fw_dir: str,
     rnn_dir: str,
@@ -328,7 +201,7 @@ def plot_learning_curve_acc_fw_vs_rnn(
     # ======================================================
     # plot (ACC only)
     # ======================================================
-    fig, ax1 = plt.subplots(1, 1, figsize=(8.6, 4.2))
+    fig, ax1 = plt.subplots(1, 1, figsize=(8.6, 3.9))
 
     SEED_LW = 1.4
     SEED_ALPHA = 0.55
@@ -362,6 +235,12 @@ def plot_learning_curve_acc_fw_vs_rnn(
     ax1.set_ylabel("Validation Acc")
     ax1.set_xlabel("Epoch")
     ax1.set_ylim(0.0, 1.0)
+
+    # ★ 20刻みは維持しつつ「150だけ」追加で表示（両端に少し余白）
+    ax1.set_xlim(-3, 153)
+    xt = list(np.arange(0, 141, 20)) + [150]  # 0,20,...,140,150
+    ax1.set_xticks(xt)
+
     ax1.grid(True, alpha=0.25)
     ax1.legend(loc="lower right", frameon=True)
 
@@ -385,17 +264,85 @@ def plot_learning_curve_acc_fw_vs_rnn(
 
 
 # ======================================================
+# (B) 追加：FWの「最終Accが最大」1本だけ（RNNなし）
+# ======================================================
+def plot_learning_curve_acc_fw_best_only(
+    fw_dir: str,
+    fw_pattern: str,
+    smooth: int,
+    out_dir: str,
+    title: str,
+):
+    out_prefix = os.path.join(out_dir, "learning_curve_acc_fw_best_T4_wait2_beta1.00")
+
+    fw_glob = os.path.join(fw_dir, fw_pattern)
+    fw_files = sorted(glob.glob(fw_glob), key=extract_seed)
+    if len(fw_files) == 0:
+        raise FileNotFoundError(f"[FW-best] No files matched: {fw_glob}")
+
+    # 最終epochのAccが最大の1本を選ぶ
+    best_path = None
+    best_final = -1.0
+
+    for p in fw_files:
+        fa = _read_final_acc_from_csv(p)
+        if fa is None:
+            continue
+        if fa > best_final:
+            best_final = fa
+            best_path = p
+
+    if best_path is None:
+        raise RuntimeError("[FW-best] Could not determine best seed (final acc not found).")
+
+    ep, acc, _ = load_one_csv(best_path)
+    acc_line = moving_average(acc, smooth)
+
+    # ★縦に余裕を持って大きく（heightを増やす）
+    fig, ax = plt.subplots(1, 1, figsize=(8.6, 4.8))
+
+    ax.plot(
+        ep, acc_line,
+        linewidth=2.0,
+        alpha=0.95,
+        zorder=2,
+    )
+
+    ax.set_ylabel("Validation Acc")
+    ax.set_xlabel("Epoch")
+    ax.set_ylim(0.0, 1.0)
+
+    # ★ 20刻みは維持しつつ「150だけ」追加で表示（両端に少し余白）
+    ax.set_xlim(-3, 153)
+    xt = list(np.arange(0, 141, 20)) + [150]  # 0,20,...,140,150
+    ax.set_xticks(xt)
+
+    ax.grid(True, alpha=0.25)
+
+    if title:
+        ax.set_title(title)
+
+    fig.tight_layout()
+
+    out_png = out_prefix + ".png"
+    out_eps = out_prefix + ".eps"
+    fig.savefig(out_png, bbox_inches="tight", dpi=300)
+    fig.savefig(out_eps, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"[OK] FW-best picked: {os.path.basename(best_path)}  (final_acc={best_final:.4f})")
+    print(f"[Saved] {out_png}")
+    print(f"[Saved] {out_eps}")
+
+
+# ======================================================
 # main
 # ======================================================
 def main():
     ap = argparse.ArgumentParser()
 
-    # ★共通出力先
-    ap.add_argument("--out_dir", default=OUT_DIR_DEFAULT, help="common output directory for both figures")
-
-    # --- sweep ---
-    ap.add_argument("--tbind_max", type=int, default=TBIND_MAX_DEFAULT)
-    ap.add_argument("--skip_sweep", action="store_true", help="skip T_bind sweep plot")
+    # ★出力先
+    ap.add_argument("--out_dir", default=OUT_DIR_DEFAULT, help="output directory for figure")
 
     # --- curve ---
     ap.add_argument("--fw_dir", default=FW_CSV_DIR_DEFAULT)
@@ -406,28 +353,38 @@ def main():
     ap.add_argument("--no_rnn", action="store_true", help="disable adding RNN mean")
 
     ap.add_argument("--smooth", type=int, default=1)
-    ap.add_argument("--skip_curve", action="store_true", help="skip bind4 learning curve plot")
 
     # ★ここをデフォルトでタイトル付きに
     ap.add_argument("--curve_title", default=CURVE_TITLE_DEFAULT)
+
+    # ★ best-run（追加図）
+    ap.add_argument("--best_title", default=BEST_CURVE_TITLE_DEFAULT)
+    ap.add_argument("--skip_best", action="store_true", help="skip FW best-only curve plot")
 
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
 
-    if not args.skip_sweep:
-        plot_tbind_sweep(tbind_max=args.tbind_max, out_dir=args.out_dir)
+    # (A) 既存の図
+    plot_learning_curve_acc_fw_vs_rnn(
+        fw_dir=args.fw_dir,
+        rnn_dir=args.rnn_dir,
+        fw_pattern=args.fw_pattern,
+        rnn_pattern=args.rnn_pattern,
+        smooth=args.smooth,
+        out_dir=args.out_dir,
+        title=args.curve_title,
+        no_rnn=args.no_rnn,
+    )
 
-    if not args.skip_curve:
-        plot_learning_curve_acc_fw_vs_rnn(
+    # (B) 追加の図（FW best 1本）
+    if not args.skip_best:
+        plot_learning_curve_acc_fw_best_only(
             fw_dir=args.fw_dir,
-            rnn_dir=args.rnn_dir,
             fw_pattern=args.fw_pattern,
-            rnn_pattern=args.rnn_pattern,
             smooth=args.smooth,
-            out_dir=args.out_dir,     # ★同じ out_dir
-            title=args.curve_title,
-            no_rnn=args.no_rnn,
+            out_dir=args.out_dir,
+            title=args.best_title,
         )
 
 

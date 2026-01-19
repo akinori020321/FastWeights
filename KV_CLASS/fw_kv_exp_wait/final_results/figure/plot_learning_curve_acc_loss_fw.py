@@ -153,6 +153,11 @@ def plot_one_metric(
     ax.grid(True, alpha=0.25)
     ax.legend(loc=legend_loc, frameon=True)
 
+    # ★ 20刻みは維持しつつ「150だけ」追加で表示（両端に少し余白）
+    ax.set_xlim(-3, 153)
+    xt = list(np.arange(0, 141, 20)) + [150]  # 0,20,...,140,150
+    ax.set_xticks(xt)
+
     if title:
         ax.set_title(title)
 
@@ -200,14 +205,14 @@ def main():
     # ========== Acc figure ==========
     out_png_acc = args.out_prefix + "_acc.png"
     out_eps_acc = "" if args.no_eps else (args.out_prefix + "_acc.eps")
-    title_acc = (args.title + "  " if args.title else "") + "Validation Acc"
+    title_acc = (args.title + "  " if args.title else "") + "Validation Accuracy"
 
     plot_one_metric(
         epochs=epochs,
         mean=acc_m,
         std=acc_s,
         df=acc_df,
-        ylabel="Validation Acc",
+        ylabel="Accuracy",
         ylim=(0.0, 1.0),
         title=title_acc,
         out_png=out_png_acc,
@@ -226,7 +231,7 @@ def main():
         mean=loss_m,
         std=loss_s,
         df=loss_df,
-        ylabel="Validation Loss (CE)",
+        ylabel="Cross-Entropy Loss",
         ylim=None,
         title=title_loss,
         out_png=out_png_loss,
