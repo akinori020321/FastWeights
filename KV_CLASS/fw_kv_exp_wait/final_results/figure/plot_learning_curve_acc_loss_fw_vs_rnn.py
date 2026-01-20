@@ -49,10 +49,10 @@ OUT_DIR_DEFAULT = os.path.join(THIS_DIR, "Tbind_and_curve_fig")
 os.makedirs(OUT_DIR_DEFAULT, exist_ok=True)
 
 # ★ learning curve 図タイトル（デフォルト）
-CURVE_TITLE_DEFAULT = "Bind=4: Learning curve (Acc)  (FW seed + RNN mean)"
+CURVE_TITLE_DEFAULT = r"$T_{bind}=4, \Delta_{wait}=2$: Learning curve (Acc)  (FW seed + RNN mean)"
 
 # ★ best-run 図タイトル（デフォルト）
-BEST_CURVE_TITLE_DEFAULT = "Bind=4: Example learning curve (Ba-FW)"
+BEST_CURVE_TITLE_DEFAULT = r"$T_{bind}=4, \Delta_{wait}=2$: Example learning curve (Ba-FW)"
 
 
 # ======================================================
