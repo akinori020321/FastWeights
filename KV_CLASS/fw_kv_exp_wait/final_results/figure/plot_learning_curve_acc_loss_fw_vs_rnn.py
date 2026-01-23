@@ -3,7 +3,7 @@
 """
 plot_tbind_curve_only.py
 ========================================================
-Bind=4 学習曲線（Acc のみ：FW seed曲線 + FW mean±std + RNN mean）
+Bind=4 学習曲線（Loss のみ：FW seed曲線 + FW mean±std + RNN mean）
     - ../T_bind/results_Tbind_fw4/ から
         fw_fw1_T4_S1_seed*_beta1.00_wait2.csv
       -> seed曲線 + mean±std + mean（黒破線）
@@ -11,13 +11,18 @@ Bind=4 学習曲線（Acc のみ：FW seed曲線 + FW mean±std + RNN mean）
       -> mean（赤実線）のみ
 
 追加:
-  - FW の「最終epochのAccが最大」の seed を1本だけ描く図（RNNなし）
+  - FW の「最終epochのLossが最小」の seed を1本だけ描く図（RNNなし）
     -> 図の見方・収束イメージ説明用
 
 出力:
   out_dir/ に
     - learning_curve_acc_fw_vs_rnn_T4_wait2_beta1.00.(png|eps)
     - learning_curve_acc_fw_best_T4_wait2_beta1.00.(png|eps)
+
+変更点（今回）:
+  - 図タイトルは表示しない（上部タイトル削除）
+  - 縦軸ラベルは "Negative log likelihood" に統一
+  - 縦軸・横軸ラベルを大きくする
 ========================================================
 """
 
@@ -47,12 +52,6 @@ RNN_CSV_DIR_DEFAULT = os.path.join(THIS_DIR, "..", "T_bind", "results_Tbind_rnn"
 # ======================================================
 OUT_DIR_DEFAULT = os.path.join(THIS_DIR, "Tbind_and_curve_fig")
 os.makedirs(OUT_DIR_DEFAULT, exist_ok=True)
-
-# ★ learning curve 図タイトル（デフォルト）
-CURVE_TITLE_DEFAULT = r"$T_{bind}=4, \Delta_{wait}=2$: Learning curve (Acc)  (FW seed + RNN mean)"
-
-# ★ best-run 図タイトル（デフォルト）
-BEST_CURVE_TITLE_DEFAULT = r"$T_{bind}=4, \Delta_{wait}=2$: Example learning curve (Ba-FW)"
 
 
 # ======================================================
@@ -132,33 +131,35 @@ def find_files_with_fallback(csv_dir: str, patterns):
     return [], None
 
 
-def _read_final_acc_from_csv(path: str):
+def _read_final_loss_from_csv(path: str):
     try:
         df = pd.read_csv(path)
     except Exception:
         return None
 
-    for key in ["valid_acc", "val_acc", "acc_val", "acc"]:
-        if key in df.columns:
+    # 大文字/小文字揺れ対策
+    cols_lower = {c.lower(): c for c in df.columns}
+    for key in ["valid_loss", "val_loss", "loss_val", "loss", "ce", "val_ce"]:
+        if key in cols_lower:
+            col = cols_lower[key]
             try:
-                return float(df[key].iloc[-1])
+                return float(df[col].iloc[-1])
             except Exception:
                 return None
     return None
 
 
 # ======================================================
-# (A) 既存：FW seed + mean±std + RNN mean
+# (A) FW seed + mean±std（Loss版 / RNNなし）
 # ======================================================
 def plot_learning_curve_acc_fw_vs_rnn(
     fw_dir: str,
-    rnn_dir: str,
+    rnn_dir: str,        # ← 互換のため残す（使わない）
     fw_pattern: str,
-    rnn_pattern: str,
+    rnn_pattern: str,    # ← 互換のため残す（使わない）
     smooth: int,
     out_dir: str,
-    title: str,
-    no_rnn: bool,
+    no_rnn: bool,        # ← 互換のため残す（使わない）
 ):
     out_prefix = os.path.join(out_dir, "learning_curve_acc_fw_vs_rnn_T4_wait2_beta1.00")
 
@@ -171,81 +172,62 @@ def plot_learning_curve_acc_fw_vs_rnn(
         raise FileNotFoundError(f"[FW] No files matched: {fw_glob}")
 
     fw_epochs, fw_acc_m, fw_acc_s, fw_loss_m, fw_loss_s, fw_acc_df, fw_loss_df = aggregate(fw_files)
-    fw_acc_m_s  = moving_average(fw_acc_m, smooth)
+    fw_loss_m_s = moving_average(fw_loss_m, smooth)
 
     # ======================================================
-    # RNN files (mean only)
+    # plot (LOSS only)  ★横幅1.2倍 + 文字小さく + RNNなし
     # ======================================================
-    rnn_ok = False
-    rnn_files = []
-    used_pat = None
+    fig, ax1 = plt.subplots(1, 1, figsize=(6.72, 3.7))  # ★(5.6,3.7) の横だけ1.2倍
 
-    if not no_rnn:
-        rnn_patterns = [
-            rnn_pattern,
-            "fw_fw0_T4_S1_seed*_beta1.00_wait2.csv",
-            "rnn*_T4*_seed*_beta1.00_wait2.csv",
-            "rnn*_T4*_seed*_wait2*_beta1.00*.csv",
-            "rnn*_T4*_seed*.csv",
-        ]
-        rnn_files, used_pat = find_files_with_fallback(rnn_dir, rnn_patterns)
-        if len(rnn_files) > 0:
-            rnn_epochs, rnn_acc_m, rnn_acc_s, rnn_loss_m, rnn_loss_s, _, _ = aggregate(rnn_files)
-            rnn_acc_m_s  = moving_average(rnn_acc_m, smooth)
-            rnn_ok = True
-        else:
-            print(f"[Warn] RNN files not found under: {rnn_dir}")
-            print(f"[Warn] tried patterns: {rnn_patterns}")
-            print("[Warn] continue plotting FW only.")
+    # ★文字小さめに
+    AXIS_LABEL_FONTSIZE = 13
+    TICK_FONTSIZE = 8
+    LEGEND_FONTSIZE = 11
 
-    # ======================================================
-    # plot (ACC only)
-    # ======================================================
-    fig, ax1 = plt.subplots(1, 1, figsize=(8.6, 3.9))
+    # ★ゴチャつき軽減（seed線を薄く＆細く）
+    SEED_LW = 1.0
+    SEED_ALPHA = 0.40
+    MEAN_LW = 1.2
+    BAND_ALPHA_FW = 0.10
 
-    SEED_LW = 1.4
-    SEED_ALPHA = 0.55
-    MEAN_LW = 1.6
-    BAND_ALPHA_FW = 0.08
-
+    # mean ± std band（loss）
     ax1.fill_between(
-        fw_epochs, fw_acc_m - fw_acc_s, fw_acc_m + fw_acc_s,
+        fw_epochs, fw_loss_m - fw_loss_s, fw_loss_m + fw_loss_s,
         alpha=BAND_ALPHA_FW, zorder=1, label="FW ±1 std"
     )
 
-    for col in fw_acc_df.columns:
+    # seed lines（loss）
+    for col in fw_loss_df.columns:
         ax1.plot(
-            fw_acc_df.index.values, fw_acc_df[col].values,
+            fw_loss_df.index.values, fw_loss_df[col].values,
             linewidth=SEED_LW, alpha=SEED_ALPHA, zorder=2
         )
 
+    # FW mean（loss）
     ax1.plot(
-        fw_epochs, fw_acc_m_s,
+        fw_epochs, fw_loss_m_s,
         color="black", linestyle="--", linewidth=MEAN_LW,
         zorder=3, label="FW mean"
     )
 
-    if rnn_ok:
-        ax1.plot(
-            rnn_epochs, rnn_acc_m_s,
-            color="red", linestyle="-", linewidth=MEAN_LW,
-            zorder=4, label="RNN mean"
-        )
+    # ★ラベル
+    ax1.set_ylabel("Negative log likelihood", fontsize=AXIS_LABEL_FONTSIZE)
+    ax1.set_xlabel("Epoch", fontsize=AXIS_LABEL_FONTSIZE)
+    ax1.tick_params(axis="both", labelsize=TICK_FONTSIZE)
 
-    ax1.set_ylabel("Validation Acc")
-    ax1.set_xlabel("Epoch")
-    ax1.set_ylim(0.0, 1.0)
+    # ★loss 用：0〜(最大値+余白)
+    y_max = float(np.nanmax(fw_loss_m + fw_loss_s))
+    ax1.set_ylim(0.0, max(0.1, y_max * 1.05))
 
-    # ★ 20刻みは維持しつつ「150だけ」追加で表示（両端に少し余白）
+    # ★x軸はそのまま（物理幅だけ伸ばす）
     ax1.set_xlim(-3, 153)
-    xt = list(np.arange(0, 141, 20)) + [150]  # 0,20,...,140,150
+    xt = list(np.arange(0, 141, 20)) + [150]
     ax1.set_xticks(xt)
 
     ax1.grid(True, alpha=0.25)
-    ax1.legend(loc="lower right", frameon=True)
 
-    # ★ learning curve のタイトル（常に表示）
-    ax1.set_title(title)
+    # ★凡例は右上（小さめ）
+    ax1.legend(loc="upper right", frameon=True, fontsize=LEGEND_FONTSIZE)
 
     fig.tight_layout()
 
@@ -255,23 +237,19 @@ def plot_learning_curve_acc_fw_vs_rnn(
     fig.savefig(out_eps, bbox_inches="tight")
 
     print(f"[OK] FW matched {len(fw_files)} files: dir={fw_dir} pattern={fw_pattern}")
-    if rnn_ok:
-        print(f"[OK] RNN matched {len(rnn_files)} files: dir={rnn_dir} pattern(used)={used_pat}")
-    else:
-        print("[OK] RNN not added.")
+    print("[OK] RNN not added (disabled by design).")
     print(f"[Saved] {out_png}")
     print(f"[Saved] {out_eps}")
 
 
 # ======================================================
-# (B) 追加：FWの「最終Accが最大」1本だけ（RNNなし）
+# (B) 追加：FWの「最終Lossが最小」1本だけ（RNNなし）
 # ======================================================
 def plot_learning_curve_acc_fw_best_only(
     fw_dir: str,
     fw_pattern: str,
     smooth: int,
     out_dir: str,
-    title: str,
 ):
     out_prefix = os.path.join(out_dir, "learning_curve_acc_fw_best_T4_wait2_beta1.00")
 
@@ -280,37 +258,45 @@ def plot_learning_curve_acc_fw_best_only(
     if len(fw_files) == 0:
         raise FileNotFoundError(f"[FW-best] No files matched: {fw_glob}")
 
-    # 最終epochのAccが最大の1本を選ぶ
+    # 最終epochのLossが最小の1本を選ぶ
     best_path = None
-    best_final = -1.0
+    best_final = float("inf")
 
     for p in fw_files:
-        fa = _read_final_acc_from_csv(p)
-        if fa is None:
+        fl = _read_final_loss_from_csv(p)
+        if fl is None:
             continue
-        if fa > best_final:
-            best_final = fa
+        if fl < best_final:
+            best_final = fl
             best_path = p
 
     if best_path is None:
-        raise RuntimeError("[FW-best] Could not determine best seed (final acc not found).")
+        raise RuntimeError("[FW-best] Could not determine best seed (final loss not found).")
 
-    ep, acc, _ = load_one_csv(best_path)
-    acc_line = moving_average(acc, smooth)
+    ep, _, loss = load_one_csv(best_path)
+    loss_line = moving_average(loss, smooth)
 
-    # ★縦に余裕を持って大きく（heightを増やす）
     fig, ax = plt.subplots(1, 1, figsize=(8.6, 4.8))
 
+    # ★軸ラベルを大きく
+    AXIS_LABEL_FONTSIZE = 19
+    TICK_FONTSIZE = 14
+
     ax.plot(
-        ep, acc_line,
+        ep, loss_line,
         linewidth=2.0,
         alpha=0.95,
         zorder=2,
     )
 
-    ax.set_ylabel("Validation Acc")
-    ax.set_xlabel("Epoch")
-    ax.set_ylim(0.0, 1.0)
+    # ★ラベル（指定どおり）
+    ax.set_ylabel("Negative log likelihood", fontsize=AXIS_LABEL_FONTSIZE)
+    ax.set_xlabel("Epoch", fontsize=AXIS_LABEL_FONTSIZE)
+    ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+
+    # ★ loss 用：0〜(最大値+余白)
+    y_max = float(np.nanmax(loss_line))
+    ax.set_ylim(0.0, max(0.1, y_max * 1.05))
 
     # ★ 20刻みは維持しつつ「150だけ」追加で表示（両端に少し余白）
     ax.set_xlim(-3, 153)
@@ -319,8 +305,8 @@ def plot_learning_curve_acc_fw_best_only(
 
     ax.grid(True, alpha=0.25)
 
-    if title:
-        ax.set_title(title)
+    # ★タイトルは付けない（ユーザ要望）
+    # ax.set_title(...)
 
     fig.tight_layout()
 
@@ -330,7 +316,7 @@ def plot_learning_curve_acc_fw_best_only(
     fig.savefig(out_eps, bbox_inches="tight")
     plt.close(fig)
 
-    print(f"[OK] FW-best picked: {os.path.basename(best_path)}  (final_acc={best_final:.4f})")
+    print(f"[OK] FW-best picked: {os.path.basename(best_path)}  (final_loss={best_final:.6f})")
     print(f"[Saved] {out_png}")
     print(f"[Saved] {out_eps}")
 
@@ -354,18 +340,14 @@ def main():
 
     ap.add_argument("--smooth", type=int, default=1)
 
-    # ★ここをデフォルトでタイトル付きに
-    ap.add_argument("--curve_title", default=CURVE_TITLE_DEFAULT)
-
     # ★ best-run（追加図）
-    ap.add_argument("--best_title", default=BEST_CURVE_TITLE_DEFAULT)
     ap.add_argument("--skip_best", action="store_true", help="skip FW best-only curve plot")
 
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
 
-    # (A) 既存の図
+    # (A) 図（FW seed + mean±std + RNN mean）
     plot_learning_curve_acc_fw_vs_rnn(
         fw_dir=args.fw_dir,
         rnn_dir=args.rnn_dir,
@@ -373,18 +355,16 @@ def main():
         rnn_pattern=args.rnn_pattern,
         smooth=args.smooth,
         out_dir=args.out_dir,
-        title=args.curve_title,
         no_rnn=args.no_rnn,
     )
 
-    # (B) 追加の図（FW best 1本）
+    # (B) 追加図（FW best 1本）
     if not args.skip_best:
         plot_learning_curve_acc_fw_best_only(
             fw_dir=args.fw_dir,
             fw_pattern=args.fw_pattern,
             smooth=args.smooth,
             out_dir=args.out_dir,
-            title=args.best_title,
         )
 
 

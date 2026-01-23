@@ -1,5 +1,6 @@
 import os
 import re
+import argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -94,7 +95,15 @@ def summarize(acc_by_T):
 # ======================================================
 # 1モデル分を描画（背景に他モデルの平均線も入れる）
 # ======================================================
-def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
+def plot_single_model(
+    target_key,
+    raw_by_model,
+    summary_by_model,
+    tick_T,
+    x_label,
+    y_label,
+    style,
+):
     target_label = LABEL_MAP[target_key]
     target_color = COLOR_MAP[target_key]
 
@@ -102,8 +111,6 @@ def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
     acc_by_T_t = raw_by_model[target_key]
 
     plt.figure(figsize=(8, 5))
-
-    BG_ALPHA = 0.20  # ★背景の薄さ（Ba-FW平均線と同じ濃さに揃える）
 
     # ----------------------------
     # 背景：対象以外の「平均線」を薄く
@@ -114,15 +121,14 @@ def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
         plt.plot(
             T_o, mean_o,
             color=COLOR_MAP[other_key],
-            linewidth=1.5,
-            alpha=BG_ALPHA,
+            linewidth=style["BG_MEAN_LW"],
+            alpha=style["BG_ALPHA"],
             zorder=1,
             label=LABEL_MAP[other_key],
         )
 
     # ======================================================
     # ★追加：SC-FW（tanh）表示のときだけ Ba-FW の「seed点」も薄く出す
-    # （濃さ＝Ba-FW平均線と同じ）
     # ======================================================
     if target_key == "tanh" and "fw" in raw_by_model:
         acc_by_T_fw = raw_by_model["fw"]
@@ -138,8 +144,7 @@ def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
             if n == 1:
                 offsets = [0.0]
             else:
-                jitter_width = 0.18
-                offsets = np.linspace(-jitter_width, jitter_width, n)
+                offsets = np.linspace(-style["JITTER_WIDTH"], style["JITTER_WIDTH"], n)
 
             for off, v in zip(offsets, vals):
                 xs_fw.append(T + off)
@@ -147,12 +152,12 @@ def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
 
         plt.scatter(
             xs_fw, ys_fw,
-            s=22,
+            s=style["SEED_S"],
             color=COLOR_MAP["fw"],
-            alpha=BG_ALPHA,       # ★Ba-FW平均線と同じ濃さ
+            alpha=style["BG_ALPHA"],     # 背景と同じ薄さ
             linewidths=0.0,
             zorder=1.6,
-            label="_nolegend_",   # ★凡例は増やさない
+            label="_nolegend_",
         )
 
     # ----------------------------
@@ -165,17 +170,17 @@ def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
         if n == 1:
             offsets = [0.0]
         else:
-            jitter_width = 0.18
-            offsets = np.linspace(-jitter_width, jitter_width, n)
+            offsets = np.linspace(-style["JITTER_WIDTH"], style["JITTER_WIDTH"], n)
+
         for off, v in zip(offsets, vals):
             xs.append(T + off)
             ys.append(v)
 
     plt.scatter(
         xs, ys,
-        s=22,
+        s=style["SEED_S"],
         color=target_color,
-        alpha=0.85,
+        alpha=style["SEED_ALPHA"],
         linewidths=0.0,
         zorder=2,
     )
@@ -186,45 +191,47 @@ def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
     plt.plot(
         T_t, mean_t,
         color=target_color,
-        linewidth=1.5,
-        alpha=0.85,
+        linewidth=style["MEAN_LW"],
+        alpha=style["MEAN_ALPHA"],
         zorder=3,
         label=target_label,
     )
 
     # ----------------------------
-    # 対象：平均±std（エラーバーのみ）
+    # 対象：平均±std（エラーバー）
     # ----------------------------
     plt.errorbar(
         T_t,
         mean_t,
         yerr=std_t,
         fmt="none",
-        markersize=6.5,
-        markerfacecolor="white",
-        markeredgecolor=target_color,
-        markeredgewidth=1.2,
-        capsize=3,
-        capthick=1.0,
-        elinewidth=1.0,
+        capsize=style["CAPSIZE"],
+        capthick=style["ERR_CAPTHICK"],
+        elinewidth=style["ERR_ELINEWIDTH"],
         ecolor=target_color,
-        alpha=0.45,
+        alpha=style["ERR_ALPHA"],
         linestyle="none",
         zorder=4,
         label="_nolegend_",
     )
 
-    plt.xlabel("T_bind")
-    plt.ylabel("Accuracy")
-    plt.title(f"Effect of Bind Length on Accuracy ({target_label})")
+    # ======================================================
+    # 軸ラベル・tickサイズ・タイトル無し
+    # ======================================================
+    plt.xlabel(x_label, fontsize=style["AXIS_LABEL_FONTSIZE"])
+    plt.ylabel(y_label, fontsize=style["AXIS_LABEL_FONTSIZE"])
+
+    plt.xticks(tick_T, [str(t) for t in tick_T], fontsize=style["TICK_FONTSIZE"])
+    plt.yticks(fontsize=style["TICK_FONTSIZE"])
 
     plt.ylim(0, 1.03)
     plt.xlim(1, TBIND_MAX + 1)
 
-    plt.xticks(tick_T, [str(t) for t in tick_T])
+    plt.grid(True, alpha=style["GRID_ALPHA"])
 
-    plt.grid(True, alpha=0.25)
-    plt.legend()
+    if style["SHOW_LEGEND"]:
+        plt.legend(fontsize=style["LEGEND_FONTSIZE"])
+
     plt.tight_layout()
 
     out_base = os.path.join(OUT_DIR, f"tbind_sweep_{target_key}")
@@ -238,6 +245,39 @@ def plot_single_model(target_key, raw_by_model, summary_by_model, tick_T):
 # メイン：全モデル読み込み→モデル別に3枚出す
 # ======================================================
 def main():
+    ap = argparse.ArgumentParser()
+
+    # axis label
+    ap.add_argument("--xlabel", default=r"$N_{\mathrm{pair}}$", help="x-axis label")
+    ap.add_argument("--ylabel", default="Accuracy", help="y-axis label")
+
+    # style controls（学習曲線スクリプトと同じノリ）
+    ap.add_argument("--axis_label_fs", type=int, default=15)
+    ap.add_argument("--tick_fs", type=int, default=13)
+    ap.add_argument("--legend_fs", type=int, default=11)
+
+    ap.add_argument("--bg_alpha", type=float, default=0.20)
+    ap.add_argument("--bg_mean_lw", type=float, default=1.5)
+
+    ap.add_argument("--seed_s", type=float, default=22.0)
+    ap.add_argument("--seed_alpha", type=float, default=0.85)
+
+    ap.add_argument("--mean_lw", type=float, default=1.5)
+    ap.add_argument("--mean_alpha", type=float, default=0.85)
+
+    ap.add_argument("--err_alpha", type=float, default=0.45)
+    ap.add_argument("--err_elinewidth", type=float, default=1.0)
+    ap.add_argument("--err_capthick", type=float, default=1.0)
+    ap.add_argument("--capsize", type=float, default=3.0)
+
+    ap.add_argument("--grid_alpha", type=float, default=0.25)
+
+    ap.add_argument("--jitter_width", type=float, default=0.18)
+
+    ap.add_argument("--no_legend", action="store_true", help="disable legend")
+
+    args = ap.parse_args()
+
     model_dirs = {
         "fw":   os.path.join(CSV_ROOT, "results_Tbind_fw"),
         "rnn":  os.path.join(CSV_ROOT, "results_Tbind_rnn"),
@@ -268,11 +308,46 @@ def main():
     # x軸 tick を統一（全モデルの T_bind の和集合）
     tick_T = sorted(set().union(*[set(summary_by_model[m][0]) for m in summary_by_model]))
 
+    # style dict
+    style = {
+        "AXIS_LABEL_FONTSIZE": args.axis_label_fs,
+        "TICK_FONTSIZE": args.tick_fs,
+        "LEGEND_FONTSIZE": args.legend_fs,
+
+        "BG_ALPHA": args.bg_alpha,
+        "BG_MEAN_LW": args.bg_mean_lw,
+
+        "SEED_S": args.seed_s,
+        "SEED_ALPHA": args.seed_alpha,
+
+        "MEAN_LW": args.mean_lw,
+        "MEAN_ALPHA": args.mean_alpha,
+
+        "ERR_ALPHA": args.err_alpha,
+        "ERR_ELINEWIDTH": args.err_elinewidth,
+        "ERR_CAPTHICK": args.err_capthick,
+        "CAPSIZE": args.capsize,
+
+        "GRID_ALPHA": args.grid_alpha,
+
+        "JITTER_WIDTH": args.jitter_width,
+
+        "SHOW_LEGEND": (not args.no_legend),
+    }
+
     # 図を出す（存在するモデルだけ）
     for target_key in ["fw", "rnn", "tanh"]:
         if target_key not in summary_by_model:
             continue
-        plot_single_model(target_key, raw_by_model, summary_by_model, tick_T)
+        plot_single_model(
+            target_key,
+            raw_by_model,
+            summary_by_model,
+            tick_T,
+            args.xlabel,
+            args.ylabel,
+            style,
+        )
 
 if __name__ == "__main__":
     main()
